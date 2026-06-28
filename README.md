@@ -54,5 +54,5 @@ open build/Toggle.app
 
 ## License
 
-Personal project. Use at your own risk — several toggles rely on private system
-frameworks and may need adjustment across macOS versions.
+MIT — see [LICENSE](LICENSE). Use at your own risk; several toggles rely on
+private system frameworks and may need adjustment across macOS versions.
