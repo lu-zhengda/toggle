@@ -1,8 +1,7 @@
 # Toggle
 
-A tiny native macOS menu bar app for one-tap system switches — a free, self-built
-alternative to menu bar switcher. Lives in your menu bar, opens a compact grid of icon
-buttons, and flips system state instantly.
+A tiny native macOS menu bar app for one-tap system switches. Lives in your menu
+bar, opens a compact grid of icon buttons, and flips system state instantly.
 
 <p align="center">⚙️ Dark Mode · Night Shift · True Tone · Mute · Keep Awake · Wi-Fi · Bluetooth · AirPods · Do Not Disturb · Hidden Files · and more</p>
 

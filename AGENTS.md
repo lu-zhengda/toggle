@@ -5,7 +5,7 @@ Guidance for AI agents (and humans) working in this repo.
 ## What this is
 
 `Toggle` is a native macOS **menu bar app** (SwiftUI `MenuBarExtra`) that provides
-one-tap system switches — a menu bar switcher clone. It ships as a menu-bar-only agent
+one-tap system switches. It ships as a menu-bar-only agent
 (`LSUIElement`), built with Swift Package Manager and packaged into a `.app` by a
 shell script (no Xcode project).
 
