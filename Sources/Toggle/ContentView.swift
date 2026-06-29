@@ -20,9 +20,47 @@ private struct BluetoothShape: Shape {
     }
 }
 
+/// The AirDrop mark — no SF Symbol exists, so we draw it: concentric arcs (open
+/// at the bottom) plus a downward triangle, matching the native glyph.
+private struct AirDropArcs: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        let cx = rect.midX
+        let cy = rect.minY + 10 * s
+        var path = Path()
+        for r in [3.5, 6.5, 9.5] as [CGFloat] {
+            let radius = r * s
+            var deg = 128.0
+            var first = true
+            while deg <= 412.0 {
+                let a = deg * .pi / 180
+                let p = CGPoint(x: cx + radius * cos(a), y: cy + radius * sin(a))
+                if first { path.move(to: p); first = false } else { path.addLine(to: p) }
+                deg += 6
+            }
+        }
+        return path
+    }
+}
+
+private struct AirDropTriangle: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        let cx = rect.midX
+        let cy = rect.minY + 10 * s
+        var path = Path()
+        path.move(to: CGPoint(x: cx - 2.4 * s, y: cy + 2.8 * s))
+        path.addLine(to: CGPoint(x: cx + 2.4 * s, y: cy + 2.8 * s))
+        path.addLine(to: CGPoint(x: cx, y: cy + 8 * s))
+        path.closeSubpath()
+        return path
+    }
+}
+
 private enum IconGlyph {
     case symbol(String)
     case bluetooth
+    case airdrop
 }
 
 /// A circular icon button. No text label — the name lives in the hover tooltip.
@@ -57,6 +95,12 @@ private struct IconButton: View {
             BluetoothShape()
                 .stroke(style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
                 .frame(width: 19, height: 19)
+        case .airdrop:
+            ZStack {
+                AirDropArcs().stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
+                AirDropTriangle()
+            }
+            .frame(width: 20, height: 20)
         }
     }
 }
@@ -86,7 +130,7 @@ private struct AirDropTile: View {
     @ObservedObject var controller: SystemController
 
     var body: some View {
-        IconButton(glyph: .symbol("dot.radiowaves.up.forward"),
+        IconButton(glyph: .airdrop,
                    title: "AirDrop: \(controller.airDropMode)",
                    isOn: controller.airDropMode != "Off",
                    action: controller.cycleAirDrop)
@@ -177,13 +221,13 @@ struct ContentView: View {
                        isOn: controller.airPodsConnected, action: controller.toggleAirPods)
         }
 
-        IconButton(glyph: .symbol("moon.circle.fill"), title: "Do Not Disturb",
+        IconButton(glyph: .symbol("bell.slash.fill"), title: "Do Not Disturb",
                    isOn: controller.doNotDisturb, action: controller.toggleDoNotDisturb)
 
         AudioOutputTile(controller: controller)
         AirDropTile(controller: controller)
 
-        IconButton(glyph: .symbol("menubar.dock.rectangle"), title: "Hide Desktop Icons",
+        IconButton(glyph: .symbol("square.grid.2x2.fill"), title: "Hide Desktop Icons",
                    isOn: controller.hideDesktopIcons, action: controller.toggleHideDesktopIcons)
         IconButton(glyph: .symbol("eye.fill"), title: "Show Hidden Files",
                    isOn: controller.showHiddenFiles, action: controller.toggleHiddenFiles)
@@ -199,10 +243,10 @@ struct ContentView: View {
         IconButton(glyph: .symbol("display"), title: "Screen Saver", action: controller.startScreenSaver)
         IconButton(glyph: .symbol("lock.fill"), title: "Lock Screen", action: controller.lockScreen)
         IconButton(glyph: .symbol("moon.zzz.fill"), title: "Sleep Display", action: controller.sleepDisplay)
-        IconButton(glyph: .symbol("powersleep"), title: "Sleep Now", action: controller.sleepNow)
+        IconButton(glyph: .symbol("bed.double.fill"), title: "Sleep Now", action: controller.sleepNow)
         IconButton(glyph: .symbol("trash.fill"), title: "Empty Trash",
                    idleTint: .red, action: controller.emptyTrash)
-        IconButton(glyph: .symbol("doc.on.clipboard"), title: "Clear Clipboard",
+        IconButton(glyph: .symbol("clipboard.fill"), title: "Clear Clipboard",
                    action: controller.clearClipboard)
         IconButton(glyph: .symbol("eject.fill"), title: "Eject All Disks",
                    action: controller.ejectAllDisks)
