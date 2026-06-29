@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import CoreAudio
 import IOKit.pwr_mgt
 
 /// Owns the live state of every switch and performs the underlying system action.
@@ -23,6 +24,13 @@ final class SystemController: ObservableObject {
     @Published var showFileExtensions = false
     @Published var dockAutohide = false
     @Published var stageManager = false
+    @Published var audioDevices: [AudioDevice] = []
+    @Published var audioOutputID: AudioDeviceID = 0
+    @Published var airDropMode = "Off"
+
+    var audioOutputName: String {
+        audioDevices.first { $0.id == audioOutputID }?.name ?? "Output"
+    }
 
     // Feature availability (drives whether a tile is shown)
     let nightShiftAvailable = NightShift.isAvailable
@@ -70,6 +78,9 @@ final class SystemController: ObservableObject {
             let exts = self.readFileExtensions()
             let dock = self.readDockAutohide()
             let stage = self.readStageManager()
+            let audioDevs = AudioOutput.outputDevices()
+            let audioCur = AudioOutput.currentDeviceID()
+            let airdrop = self.readAirDrop()
             await MainActor.run {
                 self.darkMode = dark
                 self.hideDesktopIcons = !iconsVisible
@@ -83,6 +94,9 @@ final class SystemController: ObservableObject {
                 self.showFileExtensions = exts
                 self.dockAutohide = dock
                 self.stageManager = stage
+                self.audioDevices = audioDevs
+                self.audioOutputID = audioCur
+                self.airDropMode = airdrop
             }
         }
         // keepAwake / doNotDisturb reflect our own state, no need to re-read.
@@ -339,6 +353,40 @@ final class SystemController: ObservableObject {
     nonisolated private func readStageManager() -> Bool {
         let value = Shell.run("/usr/bin/defaults", ["read", "com.apple.WindowManager", "GloballyEnabled"])
         return value == "1" || value.lowercased() == "true"
+    }
+
+    // MARK: - Audio output
+
+    func cycleAudioOutput() {
+        AudioOutput.cycle()
+        audioDevices = AudioOutput.outputDevices()
+        audioOutputID = AudioOutput.currentDeviceID()
+    }
+
+    func selectAudioDevice(_ id: AudioDeviceID) {
+        AudioOutput.setDevice(id)
+        audioOutputID = AudioOutput.currentDeviceID()
+    }
+
+    // MARK: - AirDrop visibility (Off / Contacts Only / Everyone)
+
+    static let airDropModes = ["Off", "Contacts Only", "Everyone"]
+
+    func cycleAirDrop() {
+        let idx = Self.airDropModes.firstIndex(of: airDropMode) ?? 0
+        setAirDrop(Self.airDropModes[(idx + 1) % Self.airDropModes.count])
+    }
+
+    func setAirDrop(_ mode: String) {
+        Shell.run("/usr/bin/defaults",
+                  ["write", "com.apple.sharingd", "DiscoverableMode", "-string", mode])
+        Shell.spawn("/usr/bin/killall", ["sharingd"])
+        airDropMode = mode
+    }
+
+    nonisolated private func readAirDrop() -> String {
+        let value = Shell.run("/usr/bin/defaults", ["read", "com.apple.sharingd", "DiscoverableMode"])
+        return value.isEmpty ? "Off" : value
     }
 
     // MARK: - Momentary actions

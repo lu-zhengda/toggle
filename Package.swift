@@ -14,6 +14,7 @@ let package = Package(
                     "-F", "/System/Library/PrivateFrameworks",
                     "-framework", "CoreBrightness",
                     "-framework", "IOBluetooth",
+                    "-framework", "CoreAudio",
                 ])
             ]
         )
