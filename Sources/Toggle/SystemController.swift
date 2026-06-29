@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import IOKit.pwr_mgt
 
 /// Owns the live state of every switch and performs the underlying system action.
@@ -19,6 +20,9 @@ final class SystemController: ObservableObject {
     @Published var bluetooth = false
     @Published var airPodsConnected = false
     @Published var doNotDisturb = false
+    @Published var showFileExtensions = false
+    @Published var dockAutohide = false
+    @Published var stageManager = false
 
     // Feature availability (drives whether a tile is shown)
     let nightShiftAvailable = NightShift.isAvailable
@@ -63,6 +67,9 @@ final class SystemController: ObservableObject {
             let wifiOn = self.readWifi()
             let btOn = BluetoothPower.isOn()
             let airpods = AirPods.isConnected()
+            let exts = self.readFileExtensions()
+            let dock = self.readDockAutohide()
+            let stage = self.readStageManager()
             await MainActor.run {
                 self.darkMode = dark
                 self.hideDesktopIcons = !iconsVisible
@@ -73,6 +80,9 @@ final class SystemController: ObservableObject {
                 self.wifi = wifiOn
                 self.bluetooth = btOn
                 self.airPodsConnected = airpods
+                self.showFileExtensions = exts
+                self.dockAutohide = dock
+                self.stageManager = stage
             }
         }
         // keepAwake / doNotDisturb reflect our own state, no need to re-read.
@@ -286,7 +296,64 @@ final class SystemController: ObservableObject {
         Shell.spawn("/usr/bin/osascript", ["-e", script])
     }
 
+    // MARK: - Show File Extensions
+
+    func toggleFileExtensions() {
+        let target = !showFileExtensions
+        Shell.run("/usr/bin/defaults",
+                  ["write", "-g", "AppleShowAllExtensions", "-bool", target ? "true" : "false"])
+        Shell.run("/usr/bin/killall", ["Finder"])
+        showFileExtensions = target
+    }
+
+    nonisolated private func readFileExtensions() -> Bool {
+        let value = Shell.run("/usr/bin/defaults", ["read", "-g", "AppleShowAllExtensions"])
+        return value == "1" || value.lowercased() == "true"
+    }
+
+    // MARK: - Dock Auto-hide
+
+    func toggleDockAutohide() {
+        let target = !dockAutohide
+        Shell.run("/usr/bin/defaults",
+                  ["write", "com.apple.dock", "autohide", "-bool", target ? "true" : "false"])
+        Shell.run("/usr/bin/killall", ["Dock"])
+        dockAutohide = target
+    }
+
+    nonisolated private func readDockAutohide() -> Bool {
+        let value = Shell.run("/usr/bin/defaults", ["read", "com.apple.dock", "autohide"])
+        return value == "1" || value.lowercased() == "true"
+    }
+
+    // MARK: - Stage Manager
+
+    func toggleStageManager() {
+        let target = !stageManager
+        Shell.run("/usr/bin/defaults",
+                  ["write", "com.apple.WindowManager", "GloballyEnabled", "-bool", target ? "true" : "false"])
+        Shell.run("/usr/bin/killall", ["WindowManager"])
+        stageManager = target
+    }
+
+    nonisolated private func readStageManager() -> Bool {
+        let value = Shell.run("/usr/bin/defaults", ["read", "com.apple.WindowManager", "GloballyEnabled"])
+        return value == "1" || value.lowercased() == "true"
+    }
+
     // MARK: - Momentary actions
+
+    func clearClipboard() {
+        NSPasteboard.general.clearContents()
+    }
+
+    func ejectAllDisks() {
+        Shell.osascript("tell application \"Finder\" to eject (every disk whose ejectable is true)")
+    }
+
+    func sleepNow() {
+        Shell.spawn("/usr/bin/pmset", ["sleepnow"])
+    }
 
     func startScreenSaver() {
         Shell.spawn("/usr/bin/open",

@@ -132,6 +132,12 @@ struct ContentView: View {
                            isOn: controller.hideDesktopIcons, action: controller.toggleHideDesktopIcons)
                 IconButton(glyph: .symbol("eye.fill"), title: "Show Hidden Files",
                            isOn: controller.showHiddenFiles, action: controller.toggleHiddenFiles)
+                IconButton(glyph: .symbol("doc.badge.ellipsis"), title: "Show File Extensions",
+                           isOn: controller.showFileExtensions, action: controller.toggleFileExtensions)
+                IconButton(glyph: .symbol("dock.arrow.down.rectangle"), title: "Dock Auto-hide",
+                           isOn: controller.dockAutohide, action: controller.toggleDockAutohide)
+                IconButton(glyph: .symbol("rectangle.stack.fill"), title: "Stage Manager",
+                           isOn: controller.stageManager, action: controller.toggleStageManager)
             }
 
             Divider()
@@ -143,6 +149,12 @@ struct ContentView: View {
                 IconButton(glyph: .symbol("moon.zzz.fill"), title: "Sleep Display", action: controller.sleepDisplay)
                 IconButton(glyph: .symbol("trash.fill"), title: "Empty Trash",
                            idleTint: .red, action: controller.emptyTrash)
+                IconButton(glyph: .symbol("doc.on.clipboard"), title: "Clear Clipboard",
+                           action: controller.clearClipboard)
+                IconButton(glyph: .symbol("eject.fill"), title: "Eject All Disks",
+                           action: controller.ejectAllDisks)
+                IconButton(glyph: .symbol("powersleep"), title: "Sleep Now",
+                           action: controller.sleepNow)
             }
         }
         .padding(14)

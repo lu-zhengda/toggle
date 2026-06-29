@@ -17,9 +17,11 @@ bar, opens a compact grid of icon buttons, and flips system state instantly.
 - **Bluetooth** — power the controller on/off (warns before disconnecting your keyboard/mouse)
 - **AirPods** — quick connect/disconnect of paired AirPods
 - **Do Not Disturb** — toggle Focus (best-effort; requires Accessibility)
-- **Hide Desktop Icons** / **Show Hidden Files**
+- **Hide Desktop Icons** / **Show Hidden Files** / **Show File Extensions**
+- **Dock Auto-hide** — auto-hide the Dock
+- **Stage Manager** — toggle Stage Manager
 
-**Actions**: Screen Saver · Lock Screen · Sleep Display · Empty Trash
+**Actions**: Screen Saver · Lock Screen · Sleep Display · Sleep Now · Empty Trash · Clear Clipboard · Eject All Disks
 
 ## Install
 
