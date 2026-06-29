@@ -30,6 +30,7 @@ private struct IconButton: View {
     let glyph: IconGlyph
     let title: String
     var isOn: Bool = false
+    var disabled: Bool = false
     var activeColor: Color = .accentColor
     var idleTint: Color = .primary
     let action: () -> Void
@@ -43,6 +44,8 @@ private struct IconButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.4 : 1)
         .help(title)
     }
 
@@ -86,10 +89,13 @@ struct ContentView: View {
                     IconButton(glyph: .symbol("sun.max.fill"), title: "Night Shift",
                                isOn: controller.nightShift, action: controller.toggleNightShift)
                 }
-                if controller.trueToneAvailable {
-                    IconButton(glyph: .symbol("sun.haze.fill"), title: "True Tone",
-                               isOn: controller.trueTone, action: controller.toggleTrueTone)
-                }
+                // Always shown; disabled (greyed) when the display/Mac lacks True Tone.
+                IconButton(glyph: .symbol("sun.haze.fill"),
+                           title: controller.trueToneAvailable
+                               ? "True Tone" : "True Tone — not supported on this display",
+                           isOn: controller.trueTone,
+                           disabled: !controller.trueToneAvailable,
+                           action: controller.toggleTrueTone)
 
                 IconButton(glyph: .symbol(controller.muted ? "speaker.slash.fill" : "speaker.wave.2.fill"),
                            title: controller.muted ? "Unmute" : "Mute",

@@ -22,8 +22,9 @@ final class SystemController: ObservableObject {
 
     // Feature availability (drives whether a tile is shown)
     let nightShiftAvailable = NightShift.isAvailable
-    let trueToneAvailable = TrueTone.isAvailable
     let bluetoothAvailable = BluetoothPower.isAvailable
+    // Computed so it reflects the current display (True Tone depends on hardware).
+    var trueToneAvailable: Bool { TrueTone.isAvailable }
     var airPodsAvailable: Bool { AirPods.isAvailable }
 
     private var sleepAssertionID: IOPMAssertionID = 0
