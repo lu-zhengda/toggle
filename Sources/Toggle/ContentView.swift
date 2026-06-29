@@ -90,9 +90,7 @@ struct ContentView: View {
                                isOn: controller.nightShift, action: controller.toggleNightShift)
                 }
                 // Always shown; disabled (greyed) when the display/Mac lacks True Tone.
-                IconButton(glyph: .symbol("sun.haze.fill"),
-                           title: controller.trueToneAvailable
-                               ? "True Tone" : "True Tone — not supported on this display",
+                IconButton(glyph: .symbol("sun.haze.fill"), title: "True Tone",
                            isOn: controller.trueTone,
                            disabled: !controller.trueToneAvailable,
                            action: controller.toggleTrueTone)
