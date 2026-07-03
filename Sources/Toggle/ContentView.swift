@@ -146,6 +146,7 @@ private struct AirDropTile: View {
 
 struct ContentView: View {
     @ObservedObject var controller: SystemController
+    @Environment(\.openWindow) private var openWindow
 
     private let columns = Array(repeating: GridItem(.fixed(46), spacing: 12), count: 4)
 
@@ -167,6 +168,16 @@ struct ContentView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
             Spacer()
+            Button {
+                openWindow(id: "settings")
+                NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Image(systemName: "gearshape.fill").font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Settings")
+
             Button { NSApplication.shared.terminate(nil) } label: {
                 Image(systemName: "power").font(.system(size: 11, weight: .medium))
             }
@@ -258,6 +269,6 @@ struct ContentView: View {
             let mins = max(0, Int(until.timeIntervalSinceNow / 60) + 1)
             return "Keep Awake (\(mins) min left)"
         }
-        return "Keep Awake (on)"
+        return "Keep Awake (on, \(controller.keepAwakeMode.commandEquivalent))"
     }
 }

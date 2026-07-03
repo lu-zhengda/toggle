@@ -3,6 +3,45 @@ import SwiftUI
 import AppKit
 import CoreAudio
 import IOKit.pwr_mgt
+import ServiceManagement
+
+enum KeepAwakeMode: String, CaseIterable, Identifiable {
+    case systemSleep
+    case displaySleep
+    case both
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .systemSleep: "Prevent system sleep"
+        case .displaySleep: "Prevent display sleep"
+        case .both: "Prevent both"
+        }
+    }
+
+    var commandEquivalent: String {
+        switch self {
+        case .systemSleep: "caffeinate -i"
+        case .displaySleep: "caffeinate -d"
+        case .both: "caffeinate -i -d"
+        }
+    }
+
+    var assertionTypes: [String] {
+        switch self {
+        case .systemSleep:
+            [kIOPMAssertionTypePreventUserIdleSystemSleep as String]
+        case .displaySleep:
+            [kIOPMAssertionTypePreventUserIdleDisplaySleep as String]
+        case .both:
+            [
+                kIOPMAssertionTypePreventUserIdleSystemSleep as String,
+                kIOPMAssertionTypePreventUserIdleDisplaySleep as String,
+            ]
+        }
+    }
+}
 
 /// Owns the live state of every switch and performs the underlying system action.
 @MainActor
@@ -28,6 +67,19 @@ final class SystemController: ObservableObject {
     @Published var audioOutputID: AudioDeviceID = 0
     @Published var airDropMode = "Off"
 
+    // Settings
+    @Published var launchAtLogin = false
+    @Published var keepAwakeMode: KeepAwakeMode {
+        didSet { UserDefaults.standard.set(keepAwakeMode.rawValue, forKey: Self.keepAwakeModeKey) }
+    }
+    @Published var defaultKeepAwakeMinutes: Int {
+        didSet { UserDefaults.standard.set(defaultKeepAwakeMinutes, forKey: Self.defaultKeepAwakeMinutesKey) }
+    }
+    @Published var isCheckingForUpdates = false
+    @Published var updateStatus: String?
+    @Published var latestReleaseURL: URL?
+    @Published var bluetoothWarningSuppressed = false
+
     var audioOutputName: String {
         audioDevices.first { $0.id == audioOutputID }?.name ?? "Output"
     }
@@ -41,6 +93,12 @@ final class SystemController: ObservableObject {
 
     private var assertionIDs: [IOPMAssertionID] = []
     private var keepAwakeTimer: DispatchWorkItem?
+
+    nonisolated private static let keepAwakeModeKey = "keepAwakeMode"
+    nonisolated private static let defaultKeepAwakeMinutesKey = "defaultKeepAwakeMinutes"
+    nonisolated private static let suppressBluetoothWarningKey = "suppressBluetoothWarning"
+    nonisolated private static let releasesURL = URL(string: "https://github.com/lu-zhengda/toggle/releases")!
+    nonisolated private static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/lu-zhengda/toggle/releases/latest")!
 
     /// The Wi-Fi hardware device (en0/en1/…), discovered once.
     nonisolated private static let wifiDevice: String = {
@@ -56,6 +114,10 @@ final class SystemController: ObservableObject {
     }()
 
     init() {
+        let storedMode = UserDefaults.standard.string(forKey: Self.keepAwakeModeKey)
+        keepAwakeMode = storedMode.flatMap(KeepAwakeMode.init(rawValue:)) ?? .both
+        defaultKeepAwakeMinutes = UserDefaults.standard.integer(forKey: Self.defaultKeepAwakeMinutesKey)
+        refreshSettings()
         refresh()
     }
 
@@ -100,6 +162,126 @@ final class SystemController: ObservableObject {
             }
         }
         // keepAwake / doNotDisturb reflect our own state, no need to re-read.
+    }
+
+    // MARK: - Settings
+
+    func refreshSettings() {
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        bluetoothWarningSuppressed = UserDefaults.standard.bool(forKey: Self.suppressBluetoothWarningKey)
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            refreshSettings()
+        } catch {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            updateStatus = "Launch at Login: \(error.localizedDescription)"
+        }
+    }
+
+    func checkForUpdates() {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        updateStatus = "Checking for updates…"
+        latestReleaseURL = nil
+
+        Task {
+            do {
+                let release = try await Self.fetchLatestRelease()
+                let current = Self.appVersion
+                latestReleaseURL = release.htmlURL
+                if Self.isVersion(release.version, newerThan: current) {
+                    updateStatus = "Update available: \(release.version) (current: \(current))"
+                } else {
+                    updateStatus = "Toggle is up to date (\(current))."
+                }
+            } catch {
+                latestReleaseURL = Self.releasesURL
+                updateStatus = "Couldn’t check for updates. Open GitHub Releases instead."
+            }
+            isCheckingForUpdates = false
+        }
+    }
+
+    func openLatestReleasePage() {
+        NSWorkspace.shared.open(latestReleaseURL ?? Self.releasesURL)
+    }
+
+    func openAccessibilitySettings() {
+        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
+
+    func openAutomationSettings() {
+        openSystemSettingsPane("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+    }
+
+    func resetBluetoothWarning() {
+        UserDefaults.standard.removeObject(forKey: Self.suppressBluetoothWarningKey)
+        bluetoothWarningSuppressed = false
+    }
+
+    var appVersionLabel: String { Self.appVersion }
+
+    private func openSystemSettingsPane(_ urlString: String) {
+        if let url = URL(string: urlString), NSWorkspace.shared.open(url) { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+    }
+
+    nonisolated private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        return (info?["CFBundleShortVersionString"] as? String)
+            ?? (info?["CFBundleVersion"] as? String)
+            ?? "Development"
+    }
+
+    nonisolated private struct GitHubRelease: Decodable {
+        let tagName: String
+        let name: String?
+        let htmlURL: URL
+
+        enum CodingKeys: String, CodingKey {
+            case tagName = "tag_name"
+            case name
+            case htmlURL = "html_url"
+        }
+
+        var version: String { name?.isEmpty == false ? name! : tagName }
+    }
+
+    nonisolated private static func fetchLatestRelease() async throws -> GitHubRelease {
+        var request = URLRequest(url: latestReleaseAPIURL)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("Toggle", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(GitHubRelease.self, from: data)
+    }
+
+    nonisolated private static func isVersion(_ lhs: String, newerThan rhs: String) -> Bool {
+        let left = versionParts(lhs)
+        let right = versionParts(rhs)
+        let count = max(left.count, right.count)
+        for index in 0..<count {
+            let a = index < left.count ? left[index] : 0
+            let b = index < right.count ? right[index] : 0
+            if a != b { return a > b }
+        }
+        return false
+    }
+
+    nonisolated private static func versionParts(_ version: String) -> [Int] {
+        version
+            .trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+            .split { !$0.isNumber }
+            .compactMap { Int($0) }
     }
 
     // MARK: - Dark Mode
@@ -161,17 +343,13 @@ final class SystemController: ObservableObject {
         keepAwake = false
         guard on else { return }
 
-        // caffeinate -i -d: prevent both system idle sleep and display sleep.
-        let types = [
-            kIOPMAssertionTypePreventUserIdleSystemSleep,
-            kIOPMAssertionTypePreventUserIdleDisplaySleep,
-        ]
-        for type in types {
+        // Matches the user's Settings choice: caffeinate -i, -d, or -i -d.
+        for type in keepAwakeMode.assertionTypes {
             var assertionID: IOPMAssertionID = 0
             let result = IOPMAssertionCreateWithName(
                 type as CFString,
                 IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                "Toggle: Keep Awake" as CFString,
+                "Toggle: Keep Awake (\(keepAwakeMode.commandEquivalent))" as CFString,
                 &assertionID
             )
             if result == kIOReturnSuccess { assertionIDs.append(assertionID) }
@@ -179,7 +357,7 @@ final class SystemController: ObservableObject {
         guard !assertionIDs.isEmpty else { return }
         keepAwake = true
 
-        if let minutes {
+        if let minutes, minutes > 0 {
             keepAwakeUntil = Date().addingTimeInterval(Double(minutes) * 60)
             let work = DispatchWorkItem { [weak self] in self?.setKeepAwake(false) }
             keepAwakeTimer = work
@@ -187,7 +365,9 @@ final class SystemController: ObservableObject {
         }
     }
 
-    func toggleKeepAwake() { setKeepAwake(!keepAwake) }
+    func toggleKeepAwake() {
+        setKeepAwake(!keepAwake, minutes: keepAwake ? nil : defaultKeepAwakeMinutes)
+    }
 
     // MARK: - Mute
 
@@ -244,8 +424,7 @@ final class SystemController: ObservableObject {
     }
 
     private func confirmBluetoothOff() -> Bool {
-        let suppressKey = "suppressBluetoothWarning"
-        if UserDefaults.standard.bool(forKey: suppressKey) { return true }
+        if UserDefaults.standard.bool(forKey: Self.suppressBluetoothWarningKey) { return true }
 
         let names = BluetoothPower.connectedDeviceNames()
         if names.isEmpty { return true } // nothing to lose
@@ -269,7 +448,8 @@ final class SystemController: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
         let response = alert.runModal()
         if alert.suppressionButton?.state == .on {
-            UserDefaults.standard.set(true, forKey: suppressKey)
+            UserDefaults.standard.set(true, forKey: Self.suppressBluetoothWarningKey)
+            bluetoothWarningSuppressed = true
         }
         return response == .alertSecondButtonReturn
     }
