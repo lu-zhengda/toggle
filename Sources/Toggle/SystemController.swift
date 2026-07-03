@@ -39,7 +39,7 @@ final class SystemController: ObservableObject {
     var trueToneAvailable: Bool { TrueTone.isAvailable }
     var airPodsAvailable: Bool { AirPods.isAvailable }
 
-    private var sleepAssertionID: IOPMAssertionID = 0
+    private var assertionIDs: [IOPMAssertionID] = []
     private var keepAwakeTimer: DispatchWorkItem?
 
     /// The Wi-Fi hardware device (en0/en1/…), discovered once.
@@ -155,23 +155,28 @@ final class SystemController: ObservableObject {
     func setKeepAwake(_ on: Bool, minutes: Int? = nil) {
         keepAwakeTimer?.cancel()
         keepAwakeTimer = nil
-        if sleepAssertionID != 0 {
-            IOPMAssertionRelease(sleepAssertionID)
-            sleepAssertionID = 0
-        }
+        for id in assertionIDs { IOPMAssertionRelease(id) }
+        assertionIDs = []
         keepAwakeUntil = nil
         keepAwake = false
         guard on else { return }
 
-        var assertionID: IOPMAssertionID = 0
-        let result = IOPMAssertionCreateWithName(
-            kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Toggle: Keep Awake" as CFString,
-            &assertionID
-        )
-        guard result == kIOReturnSuccess else { return }
-        sleepAssertionID = assertionID
+        // caffeinate -i -d: prevent both system idle sleep and display sleep.
+        let types = [
+            kIOPMAssertionTypePreventUserIdleSystemSleep,
+            kIOPMAssertionTypePreventUserIdleDisplaySleep,
+        ]
+        for type in types {
+            var assertionID: IOPMAssertionID = 0
+            let result = IOPMAssertionCreateWithName(
+                type as CFString,
+                IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                "Toggle: Keep Awake" as CFString,
+                &assertionID
+            )
+            if result == kIOReturnSuccess { assertionIDs.append(assertionID) }
+        }
+        guard !assertionIDs.isEmpty else { return }
         keepAwake = true
 
         if let minutes {

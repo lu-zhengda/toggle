@@ -12,7 +12,7 @@ bar, opens a compact grid of icon buttons, and flips system state instantly.
 - **Dark Mode** — switch appearance
 - **Night Shift** / **True Tone** — display warmth (hidden if your display lacks them)
 - **Mute** — output mute
-- **Keep Awake** — prevent system sleep (`caffeinate -i`); right-click for a 15m/30m/1h/2h/indefinite timer
+- **Keep Awake** — prevent system and display sleep (`caffeinate -i -d`); right-click for a 15m/30m/1h/2h/indefinite timer
 - **Wi-Fi** — power the Wi-Fi interface on/off
 - **Bluetooth** — power the controller on/off (warns before disconnecting your keyboard/mouse)
 - **AirPods** — quick connect/disconnect of paired AirPods
