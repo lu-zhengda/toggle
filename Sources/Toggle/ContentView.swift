@@ -251,6 +251,12 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var actions: some View {
+        if controller.lowPowerModeAvailable {
+            IconButton(glyph: .symbol("leaf.fill"), title: "Low Power Mode",
+                       isOn: controller.lowPowerMode, activeColor: .yellow,
+                       action: controller.toggleLowPowerMode)
+        }
+
         IconButton(glyph: .symbol("display"), title: "Screen Saver", action: controller.startScreenSaver)
         IconButton(glyph: .symbol("lock.fill"), title: "Lock Screen", action: controller.lockScreen)
         IconButton(glyph: .symbol("moon.zzz.fill"), title: "Sleep Display", action: controller.sleepDisplay)

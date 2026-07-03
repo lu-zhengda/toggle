@@ -63,6 +63,7 @@ final class SystemController: ObservableObject {
     @Published var showFileExtensions = false
     @Published var dockAutohide = false
     @Published var stageManager = false
+    @Published var lowPowerMode = false
     @Published var audioDevices: [AudioDevice] = []
     @Published var audioOutputID: AudioDeviceID = 0
     @Published var airDropMode = "Off"
@@ -90,6 +91,7 @@ final class SystemController: ObservableObject {
     // Computed so it reflects the current display (True Tone depends on hardware).
     var trueToneAvailable: Bool { TrueTone.isAvailable }
     var airPodsAvailable: Bool { AirPods.isAvailable }
+    let lowPowerModeAvailable = SystemController.lowPowerModeValue() != nil
 
     private var assertionIDs: [IOPMAssertionID] = []
     private var keepAwakeTimer: DispatchWorkItem?
@@ -140,6 +142,7 @@ final class SystemController: ObservableObject {
             let exts = self.readFileExtensions()
             let dock = self.readDockAutohide()
             let stage = self.readStageManager()
+            let lowPower = self.readLowPowerMode()
             let audioDevs = AudioOutput.outputDevices()
             let audioCur = AudioOutput.currentDeviceID()
             let airdrop = self.readAirDrop()
@@ -156,6 +159,7 @@ final class SystemController: ObservableObject {
                 self.showFileExtensions = exts
                 self.dockAutohide = dock
                 self.stageManager = stage
+                self.lowPowerMode = lowPower
                 self.audioDevices = audioDevs
                 self.audioOutputID = audioCur
                 self.airDropMode = airdrop
@@ -538,6 +542,37 @@ final class SystemController: ObservableObject {
     nonisolated private func readStageManager() -> Bool {
         let value = Shell.run("/usr/bin/defaults", ["read", "com.apple.WindowManager", "GloballyEnabled"])
         return value == "1" || value.lowercased() == "true"
+    }
+
+    // MARK: - Low Power Mode
+
+    func toggleLowPowerMode() {
+        let target = !lowPowerMode
+        lowPowerMode = target
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let value = target ? "1" : "0"
+            _ = Shell.osascript(
+                "do shell script \"/usr/bin/pmset -a lowpowermode \(value)\" with administrator privileges"
+            )
+            guard let self else { return }
+            let actual = self.readLowPowerMode()
+            await MainActor.run { self.lowPowerMode = actual }
+        }
+    }
+
+    nonisolated private func readLowPowerMode() -> Bool {
+        Self.lowPowerModeValue() == true
+    }
+
+    nonisolated private static func lowPowerModeValue() -> Bool? {
+        let output = Shell.run("/usr/bin/pmset", ["-g"])
+        for line in output.components(separatedBy: .newlines) where line.lowercased().contains("lowpowermode") {
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if let value = parts.last {
+                return value == "1" || value.lowercased() == "true"
+            }
+        }
+        return nil
     }
 
     // MARK: - Audio output

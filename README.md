@@ -15,6 +15,7 @@ bar, opens a compact grid of icon buttons, and flips system state instantly.
 - **Keep Awake** — prevent system sleep, display sleep, or both
   (`caffeinate -i`, `-d`, or `-i -d`); right-click for a
   15m/30m/1h/2h/indefinite timer
+- **Low Power Mode** — toggle macOS Low Power Mode (prompts for admin approval)
 - **Wi-Fi** — power the Wi-Fi interface on/off
 - **Bluetooth** — power the controller on/off (warns before disconnecting your keyboard/mouse)
 - **AirPods** — quick connect/disconnect of paired AirPods
@@ -23,7 +24,8 @@ bar, opens a compact grid of icon buttons, and flips system state instantly.
 - **Dock Auto-hide** — auto-hide the Dock
 - **Stage Manager** — toggle Stage Manager
 
-**Actions**: Screen Saver · Lock Screen · Sleep Display · Sleep Now · Empty Trash · Clear Clipboard · Eject All Disks
+**Actions**: Screen Saver · Lock Screen · Sleep Display · Sleep Now · Empty Trash ·
+Clear Clipboard · Eject All Disks
 
 ## Install
 
@@ -52,7 +54,7 @@ Requires a recent Xcode / Swift toolchain.
 
 ```sh
 swift build -c release   # compile
-./build-app.sh           # package into build/Toggle.app (menu-bar-only, ad-hoc signed, with icon)
+./build-app.sh           # package into build/Toggle.app
 open build/Toggle.app
 ```
 
