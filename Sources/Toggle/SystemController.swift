@@ -91,7 +91,7 @@ final class SystemController: ObservableObject {
     // Computed so it reflects the current display (True Tone depends on hardware).
     var trueToneAvailable: Bool { TrueTone.isAvailable }
     var airPodsAvailable: Bool { AirPods.isAvailable }
-    let lowPowerModeAvailable = SystemController.lowPowerModeValue() != nil
+    let lowPowerModeAvailable = SystemController.lowPowerModeSupported()
 
     private var assertionIDs: [IOPMAssertionID] = []
     private var keepAwakeTimer: DispatchWorkItem?
@@ -561,11 +561,19 @@ final class SystemController: ObservableObject {
     }
 
     nonisolated private func readLowPowerMode() -> Bool {
-        Self.lowPowerModeValue() == true
+        // Current on/off comes from the live view (reflects the active power source).
+        Self.lowPowerModeValue(in: Shell.run("/usr/bin/pmset", ["-g"])) == true
     }
 
-    nonisolated private static func lowPowerModeValue() -> Bool? {
-        let output = Shell.run("/usr/bin/pmset", ["-g"])
+    // Availability: the live view (`pmset -g`) omits `lowpowermode` on some Macs /
+    // macOS versions even when it's supported, so fall back to the per-source
+    // profiles (`pmset -g custom`) before deciding the machine can't do it.
+    nonisolated private static func lowPowerModeSupported() -> Bool {
+        if lowPowerModeValue(in: Shell.run("/usr/bin/pmset", ["-g"])) != nil { return true }
+        return lowPowerModeValue(in: Shell.run("/usr/bin/pmset", ["-g", "custom"])) != nil
+    }
+
+    nonisolated private static func lowPowerModeValue(in output: String) -> Bool? {
         for line in output.components(separatedBy: .newlines) where line.lowercased().contains("lowpowermode") {
             let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
             if let value = parts.last {
