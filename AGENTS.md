@@ -22,6 +22,29 @@ relevant toggle. Many toggles can be sanity-checked from the shell by running th
 same command the app runs (e.g. `defaults read -g AppleInterfaceStyle`,
 `networksetup -getairportpower <dev>`).
 
+## Releasing a new version
+
+The app checks GitHub Releases for updates, and it's distributed via a Homebrew
+cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
+**Both must be updated** — bumping the release without the cask leaves
+`brew upgrade` users behind (and vice versa). Full flow, e.g. `X.Y.Z`:
+
+1. Bump the version in `build-app.sh` (both `CFBundleVersion` and
+   `CFBundleShortVersionString` — it's the only place the version lives).
+2. Commit code + bump. End the message with the `Co-Authored-By` trailer.
+3. `./build-app.sh`, then zip the bundle the same way the assets are packaged:
+   `cd build && ditto -c -k --sequesterRsrc --keepParent Toggle.app Toggle.zip`
+   (verify `defaults read "$PWD/Toggle.app/Contents/Info" CFBundleShortVersionString`).
+4. `git push` and cut the release — tag `vX.Y.Z`, title `Toggle X.Y.Z`, asset
+   `Toggle.zip`:
+   `gh release create vX.Y.Z --repo lu-zhengda/toggle --title "Toggle X.Y.Z" --notes "…" build/Toggle.zip`
+   (in-app "Check for updates" hits `releases/latest`, so it must be marked Latest —
+   the newest non-prerelease release is, automatically).
+5. Update the cask in the tap: set `version` and `sha256` (the asset's sha256 —
+   `shasum -a 256 build/Toggle.zip`, or the release asset `.digest`). Commit via
+   the API since the tap isn't checked out locally:
+   `gh api -X PUT repos/lu-zhengda/homebrew-tap/contents/Casks/toggle.rb -f message="toggle X.Y.Z" -f sha="$(gh api repos/lu-zhengda/homebrew-tap/contents/Casks/toggle.rb --jq .sha)" -f content="$(base64 < newcask.rb)"`
+
 ## Layout
 
 - `Package.swift` — SPM executable target `Toggle`. Links the private framework
