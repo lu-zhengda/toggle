@@ -328,7 +328,13 @@ struct ContentView: View {
         if controller.lowPowerModeAvailable {
             IconButton(glyph: .symbol("leaf.fill"), title: "Low Power Mode",
                        isOn: controller.lowPowerMode, activeColor: .orange,
+                       accessibilityHint: controller.lowPowerMode
+                           ? "Turns Low Power Mode off. Open the context menu to use Battery Settings instead."
+                           : "Turns Low Power Mode on. Open the context menu to use Battery Settings instead.",
                        action: controller.toggleLowPowerMode)
+                .contextMenu {
+                    Button("Open Battery Settings") { controller.openBatterySettings() }
+                }
         }
 
         IconButton(glyph: .symbol("wifi"), title: "Wi-Fi",

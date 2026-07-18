@@ -16,7 +16,9 @@ system state, and reports failures instead of leaving a misleading switch behind
 - **Keep Awake** — prevent system sleep, display sleep, or both
   (`caffeinate -i`, `-d`, or `-i -d`); right-click for a
   15m/30m/1h/2h/indefinite timer
-- **Low Power Mode** — toggle macOS Low Power Mode (prompts for admin approval)
+- **Low Power Mode** — toggle macOS Low Power Mode. macOS requires administrator
+  approval, which Toggle reuses for the system's brief authorization window;
+  right-click the tile to open Battery Settings without a password prompt.
 - **Wi-Fi** — power the actual Wi-Fi interface via CoreWLAN (no `en0` guessing)
 - **Bluetooth** — power the controller on/off (warns before disconnecting your keyboard/mouse)
 - **AirPods** — quick connect/disconnect of paired AirPods
@@ -54,6 +56,9 @@ macOS gates a few toggles behind privacy approvals — click Allow on first use:
 - **Automation** (System Events / Finder) — Dark Mode, Mute, Empty Trash
 - **Accessibility** — Lock Screen (sends ⌃⌘Q) and Do Not Disturb
 - **Bluetooth** — Bluetooth toggle and AirPods connect
+
+Low Power Mode changes use macOS administrator authorization because the system
+tool that applies them requires root access. Toggle never stores the password.
 
 ## Build from source
 

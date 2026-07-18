@@ -899,26 +899,58 @@ final class SystemController: ObservableObject {
     func toggleLowPowerMode() {
         let target = !lowPowerMode
         NSApp.activate(ignoringOtherApps: true)
-        performBooleanAction(
-            key: "lowPower",
-            title: "Low Power Mode",
-            target: target,
-            apply: { [weak self] in self?.lowPowerMode = $0 },
-            operation: {
-                let value = target ? "1" : "0"
-                return await Shell.execute(
-                    "/usr/bin/osascript",
-                    ["-e", "do shell script \"/usr/bin/pmset -a lowpowermode \(value)\" with administrator privileges"],
-                    timeout: 120
-                ).success
-            },
-            read: { Self.readLowPowerMode() }
-        )
+        guard beginAction("lowPower") else { return }
+        lowPowerMode = target
+
+        Task { [weak self] in
+            let result = await Self.offMain { LowPowerMode.setEnabled(target) }
+            let actual = await Self.offMain { Self.readLowPowerMode() }
+            guard let self else { return }
+
+            self.lowPowerMode = actual
+            self.busyActions.remove("lowPower")
+            switch result {
+            case .success where actual == target:
+                self.showFeedback(
+                    "Low Power Mode is \(actual ? "on" : "off").",
+                    symbol: "checkmark.circle.fill"
+                )
+            case .success:
+                self.showFeedback(
+                    "macOS didn’t apply the Low Power Mode change.",
+                    symbol: "exclamationmark.triangle.fill",
+                    isError: true
+                )
+            case .cancelled:
+                self.showFeedback(
+                    "Low Power Mode wasn’t changed.",
+                    symbol: "xmark.circle"
+                )
+            case .failure(let message):
+                self.showFeedback(
+                    "Couldn’t change Low Power Mode: \(message)",
+                    symbol: "exclamationmark.triangle.fill",
+                    isError: true
+                )
+            }
+        }
+    }
+
+    func openBatterySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.Battery-Settings.extension"
+        ), NSWorkspace.shared.open(url) else {
+            showFeedback(
+                "Couldn’t open Battery Settings.",
+                symbol: "exclamationmark.triangle.fill",
+                isError: true
+            )
+            return
+        }
     }
 
     nonisolated private static func readLowPowerMode() -> Bool {
-        // Current on/off comes from the live view (reflects the active power source).
-        SystemParsing.lowPowerModeValue(in: Shell.run("/usr/bin/pmset", ["-g"])) == true
+        ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     // Availability: the live view (`pmset -g`) omits `lowpowermode` on some Macs /

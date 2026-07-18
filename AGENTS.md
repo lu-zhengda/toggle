@@ -58,6 +58,7 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   - `SystemController.swift` — `@MainActor ObservableObject` holding all switch
     state (`@Published`) and performing every action.
   - `Shell.swift` — helpers for running processes and AppleScript.
+  - `LowPowerMode.swift` — retained, invariant administrator AppleScript bridge.
   - `WiFi.swift` — CoreWLAN-backed Wi-Fi power control (no interface guessing).
   - `SystemParsing.swift` — pure version/defaults/power parsers.
   - `NightShift.swift`, `TrueTone.swift`, `Bluetooth.swift` — bridges to system APIs.
@@ -91,6 +92,10 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   the API isn't present. Don't assume they exist.
 - **Wi-Fi uses CoreWLAN's current system interface** — never hardcode `en0`; this
   machine uses `en1`.
+- **Low Power Mode mutations require root.** Keep the single retained,
+  parameterized `NSAppleScript` invariant so macOS can reuse its brief
+  authorization cache; interpolating the state into script source causes a new
+  password prompt. Never store credentials or weaken `sudoers`.
 - **Do Not Disturb** has no public API; it's best-effort Control Center UI scripting
   and needs Accessibility permission. It's the most fragile toggle and may need
   per-macOS-version tweaks.
