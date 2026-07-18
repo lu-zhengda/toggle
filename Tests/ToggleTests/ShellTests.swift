@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import Toggle
 
 final class ShellTests: XCTestCase {
@@ -34,6 +35,24 @@ final class ShellTests: XCTestCase {
         XCTAssertTrue(result.timedOut)
         XCTAssertFalse(result.success)
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+    }
+
+    func testExecuteStopsReadingWhenDescendantRetainsPipe() async {
+        let started = Date()
+        let result = await Shell.execute(
+            "/bin/sh",
+            ["-c", "sleep 10 & echo $!"],
+            timeout: 2
+        )
+
+        guard let childPID = Int32(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            XCTFail("Expected the descendant PID, got: \(result.stdout)")
+            return
+        }
+        defer { _ = Darwin.kill(childPID, SIGKILL) }
+
+        XCTAssertTrue(result.success)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
     func testLegacyRunReturnsEmptyOnFailure() {

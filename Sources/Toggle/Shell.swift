@@ -82,15 +82,16 @@ enum Shell {
         // deadlock if the child fills the stderr pipe before it exits.
         let stdout = LockedData()
         let stderr = LockedData()
+        let stopReaders = LockedFlag()
         let readers = DispatchGroup()
         readers.enter()
         DispatchQueue.global(qos: .utility).async {
-            stdout.store(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+            drain(stdoutPipe.fileHandleForReading, into: stdout, until: stopReaders)
             readers.leave()
         }
         readers.enter()
         DispatchQueue.global(qos: .utility).async {
-            stderr.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+            drain(stderrPipe.fileHandleForReading, into: stderr, until: stopReaders)
             readers.leave()
         }
 
@@ -105,12 +106,13 @@ enum Shell {
             }
         }
 
-        // A killed process normally closes both pipes immediately. Bound this
-        // wait as a final safeguard against a descendant retaining a pipe fd.
+        // A killed process normally closes both pipes immediately. A descendant
+        // can retain a writer fd, though, so stop the nonblocking readers after
+        // a bounded drain instead of closing a FileHandle underneath a blocking
+        // Foundation read (which raises an uncatchable NSException on macOS 15).
         if readers.wait(timeout: .now() + terminationGracePeriod) == .timedOut {
-            try? stdoutPipe.fileHandleForReading.close()
-            try? stderrPipe.fileHandleForReading.close()
-            _ = readers.wait(timeout: .now() + terminationGracePeriod)
+            stopReaders.set()
+            readers.wait()
         }
 
         let status = process.isRunning ? nil : process.terminationStatus
@@ -121,6 +123,55 @@ enum Shell {
             launchError: nil,
             timedOut: timedOut
         )
+    }
+
+    /// Drain a pipe without a blocking `FileHandle` read. `poll` gives timeout
+    /// cleanup a chance to stop the reader without racing a concurrent close.
+    private static func drain(
+        _ handle: FileHandle,
+        into output: LockedData,
+        until stop: LockedFlag
+    ) {
+        let descriptor = handle.fileDescriptor
+        let existingFlags = Darwin.fcntl(descriptor, F_GETFL)
+        if existingFlags >= 0 {
+            _ = Darwin.fcntl(descriptor, F_SETFL, existingFlags | O_NONBLOCK)
+        }
+
+        var pollDescriptor = pollfd(
+            fd: descriptor,
+            events: Int16(POLLIN | POLLHUP),
+            revents: 0
+        )
+        var buffer = [UInt8](repeating: 0, count: 16 * 1024)
+
+        while !stop.isSet {
+            pollDescriptor.revents = 0
+            let pollResult = Darwin.poll(&pollDescriptor, 1, 100)
+            if pollResult == 0 { continue }
+            if pollResult < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+
+            while true {
+                let count = buffer.withUnsafeMutableBytes { bytes in
+                    Darwin.read(descriptor, bytes.baseAddress, bytes.count)
+                }
+                if count > 0 {
+                    output.append(Data(buffer.prefix(count)))
+                    continue
+                }
+                if count == 0 { return }
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK { break }
+                return
+            }
+
+            if pollDescriptor.revents & Int16(POLLERR | POLLNVAL) != 0 {
+                return
+            }
+        }
     }
 
     /// Fire-and-forget a command without blocking the UI.
@@ -143,9 +194,9 @@ private final class LockedData: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
 
-    func store(_ value: Data) {
+    func append(_ value: Data) {
         lock.lock()
-        data = value
+        data.append(value)
         lock.unlock()
     }
 
@@ -153,5 +204,22 @@ private final class LockedData: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return data
+    }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
     }
 }
