@@ -30,13 +30,16 @@ private struct AirDropArcs: Shape {
         var path = Path()
         for r in [3.5, 6.5, 9.5] as [CGFloat] {
             let radius = r * s
-            var deg = 128.0
+            var degrees: CGFloat = 128
             var first = true
-            while deg <= 412.0 {
-                let a = deg * .pi / 180
-                let p = CGPoint(x: cx + radius * cos(a), y: cy + radius * sin(a))
+            while degrees <= 412 {
+                let angle: CGFloat = degrees * .pi / 180
+                let p = CGPoint(
+                    x: cx + radius * CoreGraphics.cos(angle),
+                    y: cy + radius * CoreGraphics.sin(angle)
+                )
                 if first { path.move(to: p); first = false } else { path.addLine(to: p) }
-                deg += 6
+                degrees += 6
             }
         }
         return path
