@@ -133,11 +133,6 @@ enum Shell {
         until stop: LockedFlag
     ) {
         let descriptor = handle.fileDescriptor
-        let existingFlags = Darwin.fcntl(descriptor, F_GETFL)
-        if existingFlags >= 0 {
-            _ = Darwin.fcntl(descriptor, F_SETFL, existingFlags | O_NONBLOCK)
-        }
-
         var pollDescriptor = pollfd(
             fd: descriptor,
             events: Int16(POLLIN | POLLHUP),
@@ -154,17 +149,16 @@ enum Shell {
                 return
             }
 
-            while true {
-                let count = buffer.withUnsafeMutableBytes { bytes in
-                    Darwin.read(descriptor, bytes.baseAddress, bytes.count)
-                }
-                if count > 0 {
-                    output.append(Data(buffer.prefix(count)))
-                    continue
-                }
-                if count == 0 { return }
-                if errno == EINTR { continue }
-                if errno == EAGAIN || errno == EWOULDBLOCK { break }
+            // Read one available chunk, then return to `poll` so cancellation is
+            // observed without relying on nonblocking FileHandle configuration.
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
+            }
+            if count > 0 {
+                output.append(Data(buffer.prefix(count)))
+            } else if count == 0 {
+                return
+            } else if errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK {
                 return
             }
 
