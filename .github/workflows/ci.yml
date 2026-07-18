@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-package:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build with strict concurrency checks
+        run: >-
+          swift build
+          -Xswiftc -strict-concurrency=complete
+          -Xswiftc -warn-concurrency
+          -Xswiftc -warnings-as-errors
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build and verify universal app bundle
+        run: ./build-app.sh

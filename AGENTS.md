@@ -13,14 +13,16 @@ shell script (no Xcode project).
 
 ```sh
 swift build -c release        # compile the executable
+swift test                    # parser + subprocess reliability tests
 ./build-app.sh                # package into build/Toggle.app (Info.plist, icon, ad-hoc codesign)
 open build/Toggle.app         # run (appears in the menu bar, no Dock icon)
+./script/build_and_run.sh --verify  # rebuild, relaunch, and verify the process
 ```
 
-There is no test target. Verify changes by building, packaging, and exercising the
-relevant toggle. Many toggles can be sanity-checked from the shell by running the
-same command the app runs (e.g. `defaults read -g AppleInterfaceStyle`,
-`networksetup -getairportpower <dev>`).
+Verify behavior changes with `swift test`, a universal packaged build, and the
+relevant live toggle. Many toggles can also be sanity-checked from the shell by
+running the same read command the app uses (e.g.
+`defaults read -g AppleInterfaceStyle`).
 
 ## Releasing a new version
 
@@ -47,17 +49,22 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
 
 ## Layout
 
-- `Package.swift` — SPM executable target `Toggle`. Links the private framework
-  `CoreBrightness` (Night Shift / True Tone) and `IOBluetooth` via `linkerSettings`.
+- `Package.swift` — SPM executable target `Toggle`. Links the public frameworks
+  used at runtime; the private `CoreBrightness` bridge is resolved dynamically so
+  unsupported systems can degrade gracefully.
 - `Sources/Toggle/`
   - `ToggleApp.swift` — `@main`, the `MenuBarExtra` scene.
   - `ContentView.swift` — the minimal icon-grid UI + `BluetoothShape`.
   - `SystemController.swift` — `@MainActor ObservableObject` holding all switch
     state (`@Published`) and performing every action.
   - `Shell.swift` — helpers for running processes and AppleScript.
+  - `WiFi.swift` — CoreWLAN-backed Wi-Fi power control (no interface guessing).
+  - `SystemParsing.swift` — pure version/defaults/power parsers.
   - `NightShift.swift`, `TrueTone.swift`, `Bluetooth.swift` — bridges to system APIs.
 - `build-app.sh` — assembles the `.app` bundle and generates the icon.
 - `generate-icon.swift` — renders `AppIcon` (run by `build-app.sh`).
+- `Tests/ToggleTests/` — parsers, subprocess edge cases, and read-only refresh smoke tests.
+- `.github/workflows/ci.yml` — strict-concurrency build, tests, and universal package verification.
 
 ## Architecture & conventions
 
@@ -65,9 +72,10 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   Bool plus a `toggle…()` method. Feature availability is exposed as
   `…Available` properties so the UI can hide unsupported tiles.
 - **Never block the main thread on subprocesses.** `refresh()` reads all state on a
-  detached task and publishes back via `MainActor.run`. The read helpers are marked
-  `nonisolated` so they can run off-main. (This async refresh is what keeps the
-  panel from lagging when it opens — don't move the reads back onto the main actor.)
+  detached task and actions use `Shell.execute`, then reconcile against the real
+  state. The read helpers are marked `nonisolated` so they can run off-main. (This
+  async work is what keeps the panel responsive — don't move reads or commands
+  back onto the main actor.)
 - UI is data-light: `ContentView` builds `IconButton`s from controller state. No
   text labels — every button has a `.help()` tooltip; keep that invariant when
   adding tiles.
@@ -80,8 +88,8 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   `unsafeBitCast`ing a runtime-resolved class (`NightShift`, `TrueTone`), or via
   `dlsym` (`BluetoothPower`). All are guarded — features degrade to hidden/no-op if
   the API isn't present. Don't assume they exist.
-- **Wi-Fi device is auto-detected** (`networksetup -listallhardwareports`) — never
-  hardcode `en0`; this machine uses `en1`.
+- **Wi-Fi uses CoreWLAN's current system interface** — never hardcode `en0`; this
+  machine uses `en1`.
 - **Do Not Disturb** has no public API; it's best-effort Control Center UI scripting
   and needs Accessibility permission. It's the most fragile toggle and may need
   per-macOS-version tweaks.

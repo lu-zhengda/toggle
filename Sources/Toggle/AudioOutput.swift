@@ -1,7 +1,7 @@
 import Foundation
 import CoreAudio
 
-struct AudioDevice: Identifiable, Equatable {
+struct AudioDevice: Identifiable, Equatable, Sendable {
     let id: AudioDeviceID
     let name: String
 }
@@ -43,32 +43,44 @@ enum AudioOutput {
     }
 
     static func outputDevices() -> [AudioDevice] {
-        allDeviceIDs().filter(hasOutput).map { AudioDevice(id: $0, name: name($0)) }
+        allDeviceIDs()
+            .filter(hasOutput)
+            .map { AudioDevice(id: $0, name: name($0)) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     static func currentDeviceID() -> AudioDeviceID {
         var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
         var device = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        AudioObjectGetPropertyData(
+        let status = AudioObjectGetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &device)
-        return device
+        return status == noErr ? device : 0
     }
 
-    static func setDevice(_ id: AudioDeviceID) {
+    @discardableResult
+    static func setDevice(_ id: AudioDeviceID) -> Bool {
         var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
         var device = id
-        AudioObjectSetPropertyData(
+        let outputStatus = AudioObjectSetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
             UInt32(MemoryLayout<AudioDeviceID>.size), &device)
+
+        // Keep alert/system sounds on the same route when the device supports it.
+        var systemAddr = address(kAudioHardwarePropertyDefaultSystemOutputDevice)
+        _ = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &systemAddr, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &device)
+        return outputStatus == noErr
     }
 
     /// Switch to the next output device in the list (wraps around).
-    static func cycle() {
+    @discardableResult
+    static func cycle() -> Bool {
         let devices = outputDevices()
-        guard devices.count > 1 else { return }
+        guard devices.count > 1 else { return false }
         let current = currentDeviceID()
         let idx = devices.firstIndex { $0.id == current } ?? -1
-        setDevice(devices[(idx + 1) % devices.count].id)
+        return setDevice(devices[(idx + 1) % devices.count].id)
     }
 }

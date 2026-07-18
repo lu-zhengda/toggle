@@ -9,14 +9,16 @@ let package = Package(
             name: "Toggle",
             path: "Sources/Toggle",
             linkerSettings: [
-                // CoreBrightness is a private framework backing Night Shift / True Tone.
-                .unsafeFlags([
-                    "-F", "/System/Library/PrivateFrameworks",
-                    "-framework", "CoreBrightness",
-                    "-framework", "IOBluetooth",
-                    "-framework", "CoreAudio",
-                ])
+                // CoreBrightness is resolved dynamically by the feature bridges so
+                // API drift can degrade gracefully instead of failing at launch.
+                .linkedFramework("IOBluetooth"),
+                .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreWLAN"),
             ]
-        )
+        ),
+        .testTarget(
+            name: "ToggleTests",
+            dependencies: ["Toggle"]
+        ),
     ]
 )
