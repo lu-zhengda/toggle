@@ -63,7 +63,8 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   - `NightShift.swift`, `TrueTone.swift`, `Bluetooth.swift` — bridges to system APIs.
 - `build-app.sh` — assembles the `.app` bundle and generates the icon.
 - `generate-icon.swift` — renders `AppIcon` (run by `build-app.sh`).
-- `Tests/ToggleTests/` — parsers, subprocess edge cases, and read-only refresh smoke tests.
+- `Tests/ToggleTests/` — parsers, subprocess edge cases, and a read-only refresh
+  smoke test (the system-services smoke test is skipped on headless CI runners).
 - `.github/workflows/ci.yml` — strict-concurrency build, tests, and universal package verification.
 
 ## Architecture & conventions
