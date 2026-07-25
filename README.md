@@ -21,7 +21,8 @@ system state, and reports failures instead of leaving a misleading switch behind
   right-click the tile to open Battery Settings without a password prompt.
 - **Wi-Fi** — power the actual Wi-Fi interface via CoreWLAN (no `en0` guessing)
 - **Bluetooth** — power the controller on/off (warns before disconnecting your keyboard/mouse)
-- **AirPods** — quick connect/disconnect of paired AirPods
+- **AirPods** — quick connect/disconnect of the connected or preferred pair;
+  right-click to choose among multiple paired devices
 - **Do Not Disturb** — verified Focus action (best-effort Control Center scripting;
   requires Accessibility and never pretends to know the current state)
 - **Hide Desktop Icons** / **Show Hidden Files** / **Show File Extensions**
@@ -54,7 +55,7 @@ Keep Awake defaults, permission shortcuts, and safety options.
 macOS gates a few toggles behind privacy approvals — click Allow on first use:
 
 - **Automation** (System Events / Finder) — Dark Mode, Mute, Empty Trash
-- **Accessibility** — Lock Screen (sends ⌃⌘Q) and Do Not Disturb
+- **Accessibility** — Do Not Disturb
 - **Bluetooth** — Bluetooth toggle and AirPods connect
 
 Low Power Mode changes use macOS administrator authorization because the system
@@ -69,6 +70,11 @@ swift test                         # run parser/process tests
 ./build-app.sh                     # universal arm64 + x86_64 app
 ./script/build_and_run.sh --verify # rebuild, launch, verify
 ```
+
+When Zhengda Lu's Developer ID certificate is installed, `build-app.sh` signs the
+bundle with that identity, Hardened Runtime, and the Apple Events entitlement.
+CI or contributors without the certificate receive an ad-hoc signed build.
+Set `TOGGLE_CODESIGN_IDENTITY=-` to request ad-hoc signing explicitly.
 
 ## License
 

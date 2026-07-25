@@ -14,7 +14,7 @@ shell script (no Xcode project).
 ```sh
 swift build -c release        # compile the executable
 swift test                    # parser + subprocess reliability tests
-./build-app.sh                # package into build/Toggle.app (Info.plist, icon, ad-hoc codesign)
+./build-app.sh                # package and sign build/Toggle.app (Developer ID when available)
 open build/Toggle.app         # run (appears in the menu bar, no Dock icon)
 ./script/build_and_run.sh --verify  # rebuild, relaunch, and verify the process
 ```
@@ -102,8 +102,10 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
 - **Bluetooth off** can disconnect the user's keyboard/mouse. `toggleBluetooth()`
   shows a confirmation listing connected devices (with a "don't warn again" pref).
   Keep that guard.
-- Packaging requires `LSUIElement` true and the usage strings in `build-app.sh`'s
-  Info.plist (`NSAppleEventsUsageDescription`, `NSBluetoothAlwaysUsageDescription`).
+- Packaging requires `LSUIElement` true, the usage strings in `build-app.sh`'s
+  Info.plist (`NSAppleEventsUsageDescription`, `NSBluetoothAlwaysUsageDescription`),
+  and the Apple Events entitlement in `Toggle.entitlements`. Release builds use
+  Developer ID when its signing identity is installed; CI falls back to ad-hoc signing.
 
 ## Adding a new toggle
 

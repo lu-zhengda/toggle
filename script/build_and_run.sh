@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="Toggle"
-BUNDLE_ID="com.local.toggle"
+BUNDLE_ID="com.zhengdalu.toggle"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="${ROOT_DIR}/build/${APP_NAME}.app"

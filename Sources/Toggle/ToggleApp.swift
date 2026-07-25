@@ -119,7 +119,7 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     Label("Accessibility", systemImage: controller.accessibilityGranted
                           ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    Text(controller.accessibilityGranted ? "Granted" : "Needed for Focus and Lock Screen")
+                    Text(controller.accessibilityGranted ? "Granted" : "Needed for Do Not Disturb")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()

@@ -5,17 +5,32 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="Toggle"
-BUNDLE_ID="com.local.toggle"
+BUNDLE_ID="com.zhengdalu.toggle"
 APP_DIR="build/${APP_NAME}.app"
 APP_BINARY="${APP_DIR}/Contents/MacOS/${APP_NAME}"
 APP_ICON="${APP_DIR}/Contents/Resources/AppIcon.icns"
 INFO_PLIST="${APP_DIR}/Contents/Info.plist"
+ENTITLEMENTS_FILE="Toggle.entitlements"
+DEFAULT_SIGNING_IDENTITY="Developer ID Application: Zhengda Lu (XY7H3QGJ2T)"
+SIGNING_IDENTITY="${TOGGLE_CODESIGN_IDENTITY:-${DEFAULT_SIGNING_IDENTITY}}"
 BUILD_ARGS=(-c release --arch arm64 --arch x86_64)
 
 fail() {
     echo "error: $*" >&2
     exit 1
 }
+
+if [ "${SIGNING_IDENTITY}" != "-" ] \
+    && ! security find-identity -v -p codesigning \
+        | grep -Fq "\"${SIGNING_IDENTITY}\""; then
+    if [ -n "${TOGGLE_CODESIGN_IDENTITY+x}" ]; then
+        fail "requested signing identity is unavailable: ${SIGNING_IDENTITY}"
+    fi
+    echo "warning: Developer ID identity unavailable; using ad-hoc signing" >&2
+    SIGNING_IDENTITY="-"
+fi
+
+[ -f "${ENTITLEMENTS_FILE}" ] || fail "missing entitlements: ${ENTITLEMENTS_FILE}"
 
 echo "==> Building universal release binary (arm64 + x86_64)..."
 swift build "${BUILD_ARGS[@]}"
@@ -61,8 +76,8 @@ cat > "${INFO_PLIST}" <<PLIST
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleExecutable</key><string>${APP_NAME}</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>1.3.1</string>
-    <key>CFBundleShortVersionString</key><string>1.3.1</string>
+    <key>CFBundleVersion</key><string>1.4.0</string>
+    <key>CFBundleShortVersionString</key><string>1.4.0</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -74,8 +89,24 @@ cat > "${INFO_PLIST}" <<PLIST
 </plist>
 PLIST
 
-echo "==> Ad-hoc code signing..."
-codesign --force --sign - "${APP_DIR}"
+if [ "${SIGNING_IDENTITY}" = "-" ]; then
+    echo "==> Ad-hoc code signing..."
+    codesign \
+        --force \
+        --options runtime \
+        --entitlements "${ENTITLEMENTS_FILE}" \
+        --sign - \
+        "${APP_DIR}"
+else
+    echo "==> Developer ID code signing..."
+    codesign \
+        --force \
+        --options runtime \
+        --timestamp \
+        --entitlements "${ENTITLEMENTS_FILE}" \
+        --sign "${SIGNING_IDENTITY}" \
+        "${APP_DIR}"
+fi
 
 echo "==> Verifying app bundle..."
 plutil -lint "${INFO_PLIST}"
@@ -98,6 +129,7 @@ for arch in arm64 x86_64; do
     esac
 done
 codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
-echo "    plist valid; icon present; architectures: ${ACTUAL_ARCHS}; signature valid"
+echo "    plist valid; icon present; architectures: ${ACTUAL_ARCHS}"
+echo "    signature valid: ${SIGNING_IDENTITY}"
 
 echo "==> Done: ${APP_DIR}"

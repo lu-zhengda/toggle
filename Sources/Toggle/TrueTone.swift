@@ -27,7 +27,7 @@ enum TrueTone {
         return unsafeBitCast(instance, to: CBTrueToneClientProtocol.self)
     }()
 
-    private static let queue = DispatchQueue(label: "com.local.toggle.true-tone")
+    private static let queue = DispatchQueue(label: "com.zhengdalu.toggle.true-tone")
 
     static var isAvailable: Bool { queue.sync { client?.available() ?? false } }
 

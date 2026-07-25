@@ -29,7 +29,7 @@ enum NightShift {
         return unsafeBitCast(instance, to: CBBlueLightClientProtocol.self)
     }()
 
-    private static let queue = DispatchQueue(label: "com.local.toggle.night-shift")
+    private static let queue = DispatchQueue(label: "com.zhengdalu.toggle.night-shift")
 
     static var isAvailable: Bool { queue.sync { client != nil } }
 

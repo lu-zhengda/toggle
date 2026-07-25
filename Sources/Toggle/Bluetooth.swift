@@ -14,7 +14,7 @@ enum BluetoothPower {
 
     nonisolated(unsafe) private static let handle = dlopen(
         "/System/Library/Frameworks/IOBluetooth.framework/IOBluetooth", RTLD_LAZY)
-    private static let queue = DispatchQueue(label: "com.local.toggle.bluetooth-power")
+    private static let queue = DispatchQueue(label: "com.zhengdalu.toggle.bluetooth-power")
 
     private static let getFn: GetFn? = {
         guard let handle,
@@ -75,34 +75,108 @@ enum BluetoothPower {
 
 }
 
-/// Quick-connect to a paired AirPods (or any device whose name contains "AirPods").
-enum AirPods {
-    private static let queue = DispatchQueue(label: "com.local.toggle.airpods")
+struct AirPodsDevice: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let isConnected: Bool
+}
 
-    private static func device() -> IOBluetoothDevice? {
-        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
-            return nil
-        }
-        return paired.first { ($0.name ?? "").localizedCaseInsensitiveContains("AirPods") }
+struct AirPodsStatus: Sendable {
+    let devices: [AirPodsDevice]
+    let selectedID: String?
+
+    var selectedDevice: AirPodsDevice? {
+        devices.first { $0.id == selectedID }
+    }
+}
+
+/// Pure selection rules kept separate from IOBluetooth so ambiguous multi-pair
+/// behavior can be tested without connecting or disconnecting real hardware.
+enum AirPodsSelectionPolicy {
+    static func isEligible(name: String) -> Bool {
+        name.localizedCaseInsensitiveContains("AirPods")
+            && !name.localizedCaseInsensitiveContains("Find My")
     }
 
-    static var isAvailable: Bool { queue.sync { device() != nil } }
+    static func selectedID(
+        devices: [AirPodsDevice],
+        preferredID: String?
+    ) -> String? {
+        let connected = devices.filter(\.isConnected)
+        if let preferredID,
+           connected.contains(where: { $0.id == preferredID }) {
+            return preferredID
+        }
+        if let connectedID = connected.first?.id { return connectedID }
+        if let preferredID,
+           devices.contains(where: { $0.id == preferredID }) {
+            return preferredID
+        }
+        return devices.count == 1 ? devices[0].id : nil
+    }
+}
 
-    static func isConnected() -> Bool { queue.sync { device()?.isConnected() ?? false } }
+/// Quick-connect to a specific paired AirPods device. Find My companion records
+/// are excluded because they are not connectable audio devices.
+enum AirPods {
+    private static let queue = DispatchQueue(label: "com.zhengdalu.toggle.airpods")
 
-    static func status() -> (available: Bool, isConnected: Bool) {
+    private struct Candidate {
+        let device: IOBluetoothDevice
+        let summary: AirPodsDevice
+    }
+
+    private static func candidates() -> [Candidate] {
+        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
+            return []
+        }
+        return paired.compactMap { device in
+            guard let rawName = device.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !rawName.isEmpty,
+                  AirPodsSelectionPolicy.isEligible(name: rawName) else {
+                return nil
+            }
+            let id = (device.addressString ?? rawName).lowercased()
+            return Candidate(
+                device: device,
+                summary: AirPodsDevice(
+                    id: id,
+                    name: rawName,
+                    isConnected: device.isConnected()
+                )
+            )
+        }
+        .sorted {
+            if $0.summary.isConnected != $1.summary.isConnected {
+                return $0.summary.isConnected
+            }
+            return $0.summary.name.localizedStandardCompare($1.summary.name) == .orderedAscending
+        }
+    }
+
+    static func status(preferredID: String?) -> AirPodsStatus {
         queue.sync {
-            guard let device = device() else { return (false, false) }
-            return (true, device.isConnected())
+            let devices = candidates().map(\.summary)
+            return AirPodsStatus(
+                devices: devices,
+                selectedID: AirPodsSelectionPolicy.selectedID(
+                    devices: devices,
+                    preferredID: preferredID
+                )
+            )
         }
     }
 
     /// Set an explicit state so queued UI work cannot accidentally invert twice.
     /// The open/close calls can block, so callers invoke this off the main thread.
     @discardableResult
-    static func setConnected(_ connected: Bool) -> Bool {
+    static func setConnected(deviceID: String, connected: Bool) -> Bool {
         queue.sync {
-            guard let device = device() else { return false }
+            guard let device = candidates()
+                .first(where: { $0.summary.id == deviceID })?
+                .device else {
+                return false
+            }
             if device.isConnected() == connected { return true }
             if connected {
                 device.openConnection()

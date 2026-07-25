@@ -96,6 +96,8 @@ final class SystemController: ObservableObject {
     @Published private(set) var hasLoadedState = false
     @Published private(set) var feedback: ActionFeedback?
     @Published private(set) var busyActions: Set<String> = []
+    @Published private(set) var airPodsDevices: [AirPodsDevice] = []
+    @Published private(set) var airPodsSelectedID: String?
 
     // Availability is refreshed off-main so rendering never touches slow APIs.
     @Published private(set) var trueToneAvailable = false
@@ -108,6 +110,14 @@ final class SystemController: ObservableObject {
         audioDevices.first { $0.id == audioOutputID }?.name ?? "Output"
     }
 
+    var selectedAirPods: AirPodsDevice? {
+        airPodsDevices.first { $0.id == airPodsSelectedID }
+    }
+
+    var airPodsNeedsSelection: Bool {
+        airPodsAvailable && airPodsSelectedID == nil && airPodsDevices.count > 1
+    }
+
     // Feature availability (drives whether a tile is shown)
     let nightShiftAvailable = NightShift.isAvailable
     let bluetoothAvailable = BluetoothPower.isAvailable
@@ -116,14 +126,17 @@ final class SystemController: ObservableObject {
     private var keepAwakeTimer: DispatchWorkItem?
     private var refreshGeneration = 0
     private var feedbackTask: Task<Void, Never>?
+    private var airPodsPreferredID: String?
 
     nonisolated private static let keepAwakeModeKey = "keepAwakeMode"
     nonisolated private static let defaultKeepAwakeMinutesKey = "defaultKeepAwakeMinutes"
     nonisolated private static let suppressBluetoothWarningKey = "suppressBluetoothWarning"
+    nonisolated private static let preferredAirPodsIDKey = "preferredAirPodsID"
     nonisolated private static let releasesURL = URL(string: "https://github.com/lu-zhengda/toggle/releases")!
     nonisolated private static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/lu-zhengda/toggle/releases/latest")!
 
     init() {
+        airPodsPreferredID = UserDefaults.standard.string(forKey: Self.preferredAirPodsIDKey)
         let storedMode = UserDefaults.standard.string(forKey: Self.keepAwakeModeKey)
         keepAwakeMode = storedMode.flatMap(KeepAwakeMode.init(rawValue:)) ?? .both
         defaultKeepAwakeMinutes = UserDefaults.standard.integer(forKey: Self.defaultKeepAwakeMinutesKey)
@@ -135,10 +148,11 @@ final class SystemController: ObservableObject {
         guard !isRefreshing, busyActions.isEmpty else { return }
         refreshGeneration += 1
         let generation = refreshGeneration
+        let preferredAirPodsID = airPodsPreferredID
         isRefreshing = true
 
         Task { [weak self] in
-            let snapshot = await Self.loadSnapshot()
+            let snapshot = await Self.loadSnapshot(preferredAirPodsID: preferredAirPodsID)
             guard let self, generation == self.refreshGeneration else { return }
             self.apply(snapshot)
             self.isRefreshing = false
@@ -157,8 +171,7 @@ final class SystemController: ObservableObject {
         let wifi: Bool
         let wifiAvailable: Bool
         let bluetooth: Bool
-        let airPodsConnected: Bool
-        let airPodsAvailable: Bool
+        let airPodsStatus: AirPodsStatus
         let showFileExtensions: Bool
         let dockAutohide: Bool
         let stageManager: Bool
@@ -170,7 +183,9 @@ final class SystemController: ObservableObject {
         let accessibilityGranted: Bool
     }
 
-    nonisolated private static func loadSnapshot() async -> SystemSnapshot {
+    nonisolated private static func loadSnapshot(
+        preferredAirPodsID: String?
+    ) async -> SystemSnapshot {
         let appearanceTask = Task.detached(priority: .userInitiated) {
             (
                 dark: readDarkMode(),
@@ -190,13 +205,12 @@ final class SystemController: ObservableObject {
         }
         let connectivityTask = Task.detached(priority: .userInitiated) {
             let wifi = WiFiPower.state()
-            let airPods = AirPods.status()
+            let airPods = AirPods.status(preferredID: preferredAirPodsID)
             return (
                 wifi: wifi.isOn,
                 wifiAvailable: wifi.available,
                 bluetooth: BluetoothPower.isOn(),
-                airPodsConnected: airPods.isConnected,
-                airPodsAvailable: airPods.available,
+                airPodsStatus: airPods,
                 airDrop: readAirDrop()
             )
         }
@@ -231,8 +245,7 @@ final class SystemController: ObservableObject {
             wifi: connectivity.wifi,
             wifiAvailable: connectivity.wifiAvailable,
             bluetooth: connectivity.bluetooth,
-            airPodsConnected: connectivity.airPodsConnected,
-            airPodsAvailable: connectivity.airPodsAvailable,
+            airPodsStatus: connectivity.airPodsStatus,
             showFileExtensions: appearance.extensions,
             dockAutohide: appearance.dock,
             stageManager: appearance.stage,
@@ -254,7 +267,7 @@ final class SystemController: ObservableObject {
         if !busyActions.contains("trueTone") { trueTone = snapshot.trueTone }
         if !busyActions.contains("wifi") { wifi = snapshot.wifi }
         if !busyActions.contains("bluetooth") { bluetooth = snapshot.bluetooth }
-        if !busyActions.contains("airPods") { airPodsConnected = snapshot.airPodsConnected }
+        if !busyActions.contains("airPods") { applyAirPodsStatus(snapshot.airPodsStatus) }
         if !busyActions.contains("fileExtensions") { showFileExtensions = snapshot.showFileExtensions }
         if !busyActions.contains("dock") { dockAutohide = snapshot.dockAutohide }
         if !busyActions.contains("stageManager") { stageManager = snapshot.stageManager }
@@ -267,7 +280,6 @@ final class SystemController: ObservableObject {
 
         trueToneAvailable = snapshot.trueToneAvailable
         wifiAvailable = snapshot.wifiAvailable
-        airPodsAvailable = snapshot.airPodsAvailable
         lowPowerModeAvailable = snapshot.lowPowerModeAvailable
         accessibilityGranted = snapshot.accessibilityGranted
         hasLoadedState = true
@@ -342,6 +354,10 @@ final class SystemController: ObservableObject {
 
     func openLoginItemsSettings() {
         openSystemSettingsPane("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
+    }
+
+    func openBluetoothSettings() {
+        openSystemSettingsPane("x-apple.systempreferences:com.apple.BluetoothSettings")
     }
 
     func resetBluetoothWarning() {
@@ -749,21 +765,66 @@ final class SystemController: ObservableObject {
     // MARK: - AirPods quick-connect
 
     func toggleAirPods() {
+        guard let device = selectedAirPods else {
+            showFeedback(
+                "Choose which AirPods this tile controls.",
+                symbol: "airpods",
+                isError: true
+            )
+            return
+        }
         guard beginAction("airPods") else { return }
-        let target = !airPodsConnected
+        let target = !device.isConnected
         airPodsConnected = target
+        performAirPodsChange(deviceID: device.id, deviceName: device.name, target: target)
+    }
+
+    func selectAirPodsDevice(_ id: String) {
+        guard let device = airPodsDevices.first(where: { $0.id == id }) else { return }
+        airPodsPreferredID = id
+        UserDefaults.standard.set(id, forKey: Self.preferredAirPodsIDKey)
+        airPodsSelectedID = id
+        airPodsConnected = device.isConnected
+
+        guard !device.isConnected else {
+            showFeedback("\(device.name) selected.", symbol: "airpods")
+            return
+        }
+        guard beginAction("airPods") else { return }
+        airPodsConnected = true
+        performAirPodsChange(deviceID: id, deviceName: device.name, target: true)
+    }
+
+    private func performAirPodsChange(
+        deviceID: String,
+        deviceName: String,
+        target: Bool
+    ) {
+        let preferredID = airPodsPreferredID
         Task { [weak self] in
-            let operationSucceeded = await Self.offMain { AirPods.setConnected(target) }
-            let actual = await Self.offMain { AirPods.isConnected() }
+            let operationSucceeded = await Self.offMain {
+                AirPods.setConnected(deviceID: deviceID, connected: target)
+            }
+            let status = await Self.offMain {
+                AirPods.status(preferredID: preferredID)
+            }
             guard let self else { return }
-            self.airPodsConnected = actual
+            self.applyAirPodsStatus(status)
+            let actual = status.devices.first { $0.id == deviceID }?.isConnected ?? false
             self.finishAction(
                 "airPods",
                 success: operationSucceeded && actual == target,
-                successMessage: "AirPods \(actual ? "connected" : "disconnected").",
-                failureMessage: "Couldn’t \(target ? "connect" : "disconnect") AirPods."
+                successMessage: "\(deviceName) \(actual ? "connected" : "disconnected").",
+                failureMessage: "Couldn’t \(target ? "connect" : "disconnect") \(deviceName)."
             )
         }
+    }
+
+    private func applyAirPodsStatus(_ status: AirPodsStatus) {
+        airPodsDevices = status.devices
+        airPodsSelectedID = status.selectedID
+        airPodsAvailable = !status.devices.isEmpty
+        airPodsConnected = status.selectedDevice?.isConnected ?? false
     }
 
     // MARK: - Do Not Disturb (best-effort UI scripting of Control Center)
@@ -1088,30 +1149,17 @@ final class SystemController: ObservableObject {
     }
 
     func lockScreen() {
-        guard AXIsProcessTrusted() else {
-            accessibilityGranted = false
-            showFeedback(
-                "Accessibility access is required to lock the screen.",
-                symbol: "hand.raised.fill",
-                isError: true
-            )
-            openAccessibilitySettings()
-            return
-        }
-        accessibilityGranted = true
         guard beginAction("lockScreen") else { return }
-        // Control-Command-Q is the system "Lock Screen" shortcut.
         Task { [weak self] in
-            let result = await Shell.execute(
-                "/usr/bin/osascript",
-                ["-e", "tell application \"System Events\" to keystroke \"q\" using {control down, command down}"]
-            )
+            let succeeded = await Self.offMain { ScreenLock.lock() }
             guard let self else { return }
             self.finishAction(
                 "lockScreen",
-                success: result.success,
+                success: succeeded,
                 successMessage: "Screen locked.",
-                failureMessage: "Couldn’t lock the screen."
+                failureMessage: ScreenLock.isAvailable
+                    ? "Couldn’t lock the screen."
+                    : "Lock Screen isn’t available on this macOS version."
             )
         }
     }

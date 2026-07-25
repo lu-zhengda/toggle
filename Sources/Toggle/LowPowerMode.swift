@@ -23,7 +23,7 @@ enum LowPowerMode {
     """
 
     nonisolated(unsafe) private static let script = NSAppleScript(source: scriptSource)
-    private static let queue = DispatchQueue(label: "com.local.toggle.low-power-mode")
+    private static let queue = DispatchQueue(label: "com.zhengdalu.toggle.low-power-mode")
 
     static func argument(for enabled: Bool) -> String {
         enabled ? "1" : "0"

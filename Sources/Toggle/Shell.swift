@@ -23,7 +23,7 @@ enum Shell {
 
     private static let terminationGracePeriod: TimeInterval = 1
     private static let executionQueue = DispatchQueue(
-        label: "com.local.toggle.shell",
+        label: "com.zhengdalu.toggle.shell",
         qos: .userInitiated,
         attributes: .concurrent
     )

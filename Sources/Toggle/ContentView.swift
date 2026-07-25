@@ -197,6 +197,115 @@ private struct AudioOutputTile: View {
     private func label(_ name: String, on: Bool) -> String { on ? "✓ \(name)" : name }
 }
 
+/// AirPods: tap controls the selected pair, right-click changes the pair, and
+/// an ambiguous first tap opens a one-time chooser instead of guessing.
+private struct AirPodsTile: View {
+    @ObservedObject var controller: SystemController
+    @State private var isChoosingDevice = false
+
+    var body: some View {
+        IconButton(
+            glyph: .symbol("airpods"),
+            title: title,
+            isOn: controller.airPodsConnected,
+            accessibilityLabel: "AirPods",
+            accessibilityValue: accessibilityValue,
+            accessibilityHint: accessibilityHint,
+            action: primaryAction
+        )
+        .contextMenu {
+            ForEach(controller.airPodsDevices) { device in
+                Button(menuLabel(for: device)) {
+                    controller.selectAirPodsDevice(device.id)
+                }
+            }
+            Divider()
+            Button("Bluetooth Settings…") {
+                controller.openBluetoothSettings()
+            }
+        }
+        .popover(isPresented: $isChoosingDevice, arrowEdge: .leading) {
+            chooser
+        }
+    }
+
+    private var chooser: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Choose AirPods")
+                .font(.headline)
+            Text("Choose which pair this tile controls.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(controller.airPodsDevices) { device in
+                Button {
+                    isChoosingDevice = false
+                    controller.selectAirPodsDevice(device.id)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "airpods")
+                            .frame(width: 18)
+                        Text(device.name)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 5)
+                .accessibilityHint("Selects and connects \(device.name).")
+            }
+
+            Divider()
+            Button("Bluetooth Settings…") {
+                isChoosingDevice = false
+                controller.openBluetoothSettings()
+            }
+        }
+        .padding(12)
+        .frame(width: 220)
+    }
+
+    private func primaryAction() {
+        if controller.airPodsNeedsSelection {
+            isChoosingDevice = true
+        } else {
+            controller.toggleAirPods()
+        }
+    }
+
+    private var title: String {
+        guard let device = controller.selectedAirPods else { return "Choose AirPods" }
+        return "\(device.isConnected ? "Disconnect" : "Connect") \(device.name)"
+    }
+
+    private var accessibilityValue: String {
+        guard let device = controller.selectedAirPods else {
+            return "No device selected"
+        }
+        return "\(device.name), \(device.isConnected ? "connected" : "disconnected")"
+    }
+
+    private var accessibilityHint: String {
+        guard let device = controller.selectedAirPods else {
+            return "Opens a chooser. Open the context menu to select a paired device."
+        }
+        let action = device.isConnected ? "Disconnects" : "Connects"
+        return "\(action) \(device.name). Open the context menu to choose another pair."
+    }
+
+    private func menuLabel(for device: AirPodsDevice) -> String {
+        let selected = device.id == controller.airPodsSelectedID
+        let prefix = selected ? "✓ " : ""
+        let suffix = device.isConnected ? " (Connected)" : ""
+        let availableCount = max(1, 30 - prefix.count - suffix.count)
+        let name = device.name.count > availableCount
+            ? String(device.name.prefix(max(1, availableCount - 1))) + "…"
+            : device.name
+        return prefix + name + suffix
+    }
+}
+
 /// AirDrop visibility: tap cycles Off/Contacts/Everyone, right-click picks.
 private struct AirDropTile: View {
     @ObservedObject var controller: SystemController
@@ -348,15 +457,7 @@ struct ContentView: View {
                        isOn: controller.bluetooth, action: controller.toggleBluetooth)
         }
         if controller.airPodsAvailable {
-            IconButton(glyph: .symbol("airpods"),
-                       title: controller.airPodsConnected ? "Disconnect AirPods" : "Connect AirPods",
-                       isOn: controller.airPodsConnected,
-                       accessibilityLabel: "AirPods",
-                       accessibilityValue: controller.airPodsConnected ? "Connected" : "Disconnected",
-                       accessibilityHint: controller.airPodsConnected
-                           ? "Disconnects AirPods."
-                           : "Connects AirPods.",
-                       action: controller.toggleAirPods)
+            AirPodsTile(controller: controller)
         }
 
         IconButton(glyph: .symbol("bell.slash.fill"), title: "Toggle Do Not Disturb",
