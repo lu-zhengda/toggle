@@ -7,6 +7,7 @@ struct ToggleApp: App {
     var body: some Scene {
         MenuBarExtra {
             ContentView(controller: controller)
+                .background(PanelCorners())
         } label: {
             Image(systemName: menuBarSymbol)
                 .accessibilityLabel(menuBarAccessibilityLabel)

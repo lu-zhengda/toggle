@@ -71,35 +71,11 @@ private enum IconGlyph {
 /// accessibility label, value, and hint.
 private struct IconTileVisual: View {
     let glyph: IconGlyph
-    var isOn = false
-    var activeColor: Color = .accentColor
-    var idleTint: Color = .primary
-
     var body: some View {
         glyphView
-            .frame(width: 46, height: 46)
-            .background(
-                Circle().fill(
-                    isOn ? activeColor.opacity(0.16) : Color.primary.opacity(0.07)
-                )
-            )
-            .overlay {
-                Circle().stroke(
-                    isOn ? activeColor.opacity(0.9) : Color.primary.opacity(0.08),
-                    lineWidth: isOn ? 1.5 : 0.5
-                )
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if isOn {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(activeColor)
-                        .background(.regularMaterial, in: Circle())
-                        .offset(x: 1, y: 1)
-                }
-            }
-            .foregroundStyle(isOn ? activeColor : idleTint)
-            .contentShape(Circle())
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .contentShape(Rectangle())
             .accessibilityHidden(true)
     }
 
@@ -121,15 +97,14 @@ private struct IconTileVisual: View {
     }
 }
 
-/// A circular icon button. No text label — the name lives in the hover tooltip.
+/// An icon-only control; the name lives in its tooltip.
 private struct IconButton: View {
     let glyph: IconGlyph
     let title: String
     /// `nil` means this is a momentary action rather than an on/off control.
     var isOn: Bool? = nil
     var disabled: Bool = false
-    var activeColor: Color = .accentColor
-    var idleTint: Color = .primary
+    var activeColor: Color = .blue
     var accessibilityLabel: String? = nil
     var accessibilityValue: String? = nil
     var accessibilityHint: String? = nil
@@ -137,14 +112,17 @@ private struct IconButton: View {
 
     var body: some View {
         Button(action: action) {
-            IconTileVisual(
-                glyph: glyph,
-                isOn: isOn == true,
-                activeColor: activeColor,
-                idleTint: idleTint
-            )
+            IconTileVisual(glyph: glyph)
+                .overlay(alignment: .bottom) {
+                    if isOn == true {
+                        Circle().frame(width: 4, height: 4)
+                            .padding(.bottom, 1)
+                            .accessibilityHidden(true)
+                    }
+                }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
+        .foregroundStyle(isOn == true ? activeColor : .primary.opacity(0.75))
         .disabled(disabled)
         .opacity(disabled ? 0.4 : 1)
         .help(title)
@@ -172,29 +150,6 @@ private struct IconButton: View {
         }
         return "Performs \(resolvedAccessibilityLabel)."
     }
-}
-
-/// Audio output: tap cycles devices, right-click picks a specific one.
-private struct AudioOutputTile: View {
-    @ObservedObject var controller: SystemController
-
-    var body: some View {
-        IconButton(glyph: .symbol("hifispeaker.fill"),
-                   title: "Audio Output: \(controller.audioOutputName)",
-                   accessibilityLabel: "Audio Output",
-                   accessibilityValue: controller.audioOutputName,
-                   accessibilityHint: "Switches to the next output. Open the context menu to choose a device.",
-                   action: controller.cycleAudioOutput)
-            .contextMenu {
-                ForEach(controller.audioDevices) { device in
-                    Button { controller.selectAudioDevice(device.id) } label: {
-                        Text(label(device.name, on: device.id == controller.audioOutputID))
-                    }
-                }
-            }
-    }
-
-    private func label(_ name: String, on: Bool) -> String { on ? "✓ \(name)" : name }
 }
 
 /// AirPods: tap controls the selected pair, right-click changes the pair, and
@@ -330,35 +285,42 @@ private struct AirDropTile: View {
 
 struct ContentView: View {
     @ObservedObject var controller: SystemController
+    @Environment(\.openSettings) private var openSettings
 
-    private let columns = Array(repeating: GridItem(.fixed(46), spacing: 12), count: 4)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 4)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             header
-            LazyVGrid(columns: columns, spacing: 12) { toggles }
-                .disabled(
-                    !controller.hasLoadedState
-                        || controller.isRefreshing
-                        || !controller.busyActions.isEmpty
-                )
-                .opacity(controller.hasLoadedState ? 1 : 0.55)
-                .accessibilityHidden(!controller.hasLoadedState)
             Divider()
-            LazyVGrid(columns: columns, spacing: 12) { actions }
+            VStack(spacing: 8) {
+                LazyVGrid(columns: columns) { connectivity }
+                Divider()
+                LazyVGrid(columns: columns) { appearance }
+                Divider()
+                LazyVGrid(columns: columns) { focus }
+                Divider()
+                LazyVGrid(columns: columns) { finder }
+            }
+            .disabled(!controller.hasLoadedState || controller.isRefreshing || !controller.busyActions.isEmpty)
+            .opacity(controller.hasLoadedState ? 1 : 0.55)
+            .accessibilityHidden(!controller.hasLoadedState)
+
+            LazyVGrid(columns: columns) { actions }
+                .foregroundStyle(.secondary)
+                .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
                 .disabled(controller.isRefreshing || !controller.busyActions.isEmpty)
             footer
         }
         .padding(14)
-        .frame(width: 248)
+        .frame(width: 284)
         .onAppear { controller.refresh() }
     }
 
     private var header: some View {
         HStack(spacing: 2) {
             Text("Toggle")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 14, weight: .semibold))
             Spacer()
 
             Button(action: controller.refresh) {
@@ -376,7 +338,11 @@ struct ContentView: View {
             .accessibilityLabel("Refresh system state")
             .accessibilityHint("Updates all toggle states.")
 
-            SettingsLink {
+            Button {
+                openSettings()
+                // Menu-bar-only apps do not become active just by opening Settings.
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: 28, height: 28)
@@ -391,7 +357,7 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder private var toggles: some View {
+    @ViewBuilder private var appearance: some View {
         IconButton(glyph: .symbol("moon.fill"), title: "Dark Mode",
                    isOn: controller.darkMode, action: controller.toggleDarkMode)
 
@@ -415,6 +381,9 @@ struct ContentView: View {
                    accessibilityHint: controller.muted ? "Unmutes audio output." : "Mutes audio output.",
                    action: controller.toggleMute)
 
+    }
+
+    @ViewBuilder private var focus: some View {
         // Keep Awake — tap toggles indefinitely; right-click for a timer.
         IconButton(glyph: .symbol("cup.and.saucer.fill"), title: keepAwakeTitle,
                    isOn: controller.keepAwake,
@@ -436,7 +405,7 @@ struct ContentView: View {
 
         if controller.lowPowerModeAvailable {
             IconButton(glyph: .symbol("leaf.fill"), title: "Low Power Mode",
-                       isOn: controller.lowPowerMode, activeColor: .orange,
+                       isOn: controller.lowPowerMode,
                        accessibilityHint: controller.lowPowerMode
                            ? "Turns Low Power Mode off. Open the context menu to use Battery Settings instead."
                            : "Turns Low Power Mode on. Open the context menu to use Battery Settings instead.",
@@ -446,6 +415,16 @@ struct ContentView: View {
                 }
         }
 
+        IconButton(glyph: .symbol("bell.slash.fill"), title: "Toggle Do Not Disturb",
+                   accessibilityLabel: "Do Not Disturb",
+                   accessibilityHint: "Toggles Do Not Disturb through Control Center. Requires Accessibility permission.",
+                   action: controller.toggleDoNotDisturb)
+
+        IconButton(glyph: .symbol("rectangle.stack.fill"), title: "Stage Manager",
+                   isOn: controller.stageManager, action: controller.toggleStageManager)
+    }
+
+    @ViewBuilder private var connectivity: some View {
         IconButton(glyph: .symbol("wifi"), title: "Wi-Fi",
                    isOn: controller.wifi,
                    disabled: !controller.wifiAvailable,
@@ -456,18 +435,14 @@ struct ContentView: View {
             IconButton(glyph: .bluetooth, title: "Bluetooth",
                        isOn: controller.bluetooth, action: controller.toggleBluetooth)
         }
+        AirDropTile(controller: controller)
         if controller.airPodsAvailable {
             AirPodsTile(controller: controller)
         }
 
-        IconButton(glyph: .symbol("bell.slash.fill"), title: "Toggle Do Not Disturb",
-                   accessibilityLabel: "Do Not Disturb",
-                   accessibilityHint: "Toggles Do Not Disturb through Control Center. Requires Accessibility permission.",
-                   action: controller.toggleDoNotDisturb)
+    }
 
-        AudioOutputTile(controller: controller)
-        AirDropTile(controller: controller)
-
+    @ViewBuilder private var finder: some View {
         IconButton(glyph: .symbol("square.grid.2x2.fill"),
                    title: controller.hideDesktopIcons ? "Show Desktop Icons" : "Hide Desktop Icons",
                    isOn: controller.hideDesktopIcons,
@@ -489,8 +464,6 @@ struct ContentView: View {
                    action: controller.toggleFileExtensions)
         IconButton(glyph: .symbol("dock.arrow.down.rectangle"), title: "Dock Auto-hide",
                    isOn: controller.dockAutohide, action: controller.toggleDockAutohide)
-        IconButton(glyph: .symbol("rectangle.stack.fill"), title: "Stage Manager",
-                   isOn: controller.stageManager, action: controller.toggleStageManager)
     }
 
     @ViewBuilder private var actions: some View {
@@ -570,6 +543,25 @@ private struct MoreActionsMenu: View {
 
     var body: some View {
         Menu {
+            Menu {
+                Button("Next Audio Output", action: controller.cycleAudioOutput)
+                Divider()
+                ForEach(controller.audioDevices) { device in
+                    Button {
+                        controller.selectAudioDevice(device.id)
+                    } label: {
+                        if device.id == controller.audioOutputID {
+                            Label(device.name, systemImage: "checkmark")
+                        } else {
+                            Text(device.name)
+                        }
+                    }
+                }
+            } label: {
+                Label("Audio Output: \(controller.audioOutputName)", systemImage: "hifispeaker.fill")
+            }
+            Divider()
+
             Button {
                 controller.sleepNow()
             } label: {
@@ -606,10 +598,10 @@ private struct MoreActionsMenu: View {
         }
         .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
-        .frame(width: 46, height: 46)
-        .contentShape(Circle())
+        .buttonStyle(.borderless)
+        .frame(height: 40)
         .help("More Actions")
         .accessibilityLabel("More Actions")
-        .accessibilityHint("Opens sleep, clipboard, disk, trash, and quit actions.")
+        .accessibilityHint("Opens audio output, sleep, clipboard, disk, trash, and quit actions.")
     }
 }
