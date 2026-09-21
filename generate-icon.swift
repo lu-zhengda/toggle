@@ -1,47 +1,42 @@
 import AppKit
 
-// Renders a 1024×1024 app icon (rounded blue squircle + white switch glyph)
-// to the path given as argv[1].
+// Package the selected rocker artwork inside a clean, consistently sized macOS tile.
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon.png"
-let size = 1024.0
-
-guard let rep = NSBitmapImageRep(
-    bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size),
-    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
-else { exit(1) }
+guard let artwork = NSImage(contentsOfFile: "Assets/RockerArtwork.png"),
+      let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: 1024, pixelsHigh: 1024,
+        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+else { fatalError("Cannot load rocker artwork or allocate app icon bitmap") }
 
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+NSGraphicsContext.current?.imageInterpolation = .high
 
-// Background squircle.
-let bg = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: size, height: size),
-                      xRadius: size * 0.225, yRadius: size * 0.225)
-NSColor(srgbRed: 0.20, green: 0.47, blue: 0.96, alpha: 1).setFill()
-bg.fill()
-
-// White switch glyph (drawn as a white-tinted template image).
-let cfg = NSImage.SymbolConfiguration(pointSize: size * 0.46, weight: .semibold)
-if let base = NSImage(systemSymbolName: "switch.2", accessibilityDescription: nil)?
-    .withSymbolConfiguration(cfg) {
-    let glyphSize = base.size
-    let tinted = NSImage(size: glyphSize)
-    tinted.lockFocus()
-    NSColor.white.set()
-    let r = NSRect(origin: .zero, size: glyphSize)
-    base.draw(in: r)
-    r.fill(using: .sourceAtop)
-    tinted.unlockFocus()
-    tinted.draw(in: NSRect(x: (size - glyphSize.width) / 2,
-                           y: (size - glyphSize.height) / 2,
-                           width: glyphSize.width, height: glyphSize.height))
-}
-
+let rect = NSRect(x: 64, y: 64, width: 896, height: 896)
+let tile = NSBezierPath(roundedRect: rect, xRadius: 202, yRadius: 202)
+NSGraphicsContext.saveGraphicsState()
+let shadow = NSShadow()
+shadow.shadowColor = NSColor.black.withAlphaComponent(0.18)
+shadow.shadowBlurRadius = 18
+shadow.shadowOffset = NSSize(width: 0, height: -8)
+shadow.set()
+NSColor(srgbRed: 0.94, green: 0.93, blue: 0.90, alpha: 1).setFill()
+tile.fill()
 NSGraphicsContext.restoreGraphicsState()
 
-if let png = rep.representation(using: .png, properties: [:]) {
-    try? png.write(to: URL(fileURLWithPath: outPath))
-    print("wrote \(outPath)")
-} else {
-    exit(1)
+tile.addClip()
+// Trim the generated artwork's transparent margin; the native path owns the outer edge.
+artwork.draw(in: rect,
+             from: NSRect(x: artwork.size.width * 132 / 1254,
+                          y: artwork.size.height * 146 / 1254,
+                          width: artwork.size.width * 988 / 1254,
+                          height: artwork.size.height * 970 / 1254),
+             operation: .sourceOver, fraction: 1)
+NSGraphicsContext.restoreGraphicsState()
+
+guard let png = rep.representation(using: .png, properties: [:]) else {
+    fatalError("Cannot encode app icon PNG")
 }
+try png.write(to: URL(fileURLWithPath: outPath))
+print("wrote \(outPath)")

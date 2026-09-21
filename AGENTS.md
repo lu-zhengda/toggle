@@ -63,7 +63,8 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   - `SystemParsing.swift` — pure version/defaults/power parsers.
   - `NightShift.swift`, `TrueTone.swift`, `Bluetooth.swift` — bridges to system APIs.
 - `build-app.sh` — assembles the `.app` bundle and generates the icon.
-- `generate-icon.swift` — renders `AppIcon` (run by `build-app.sh`).
+- `Assets/RockerArtwork.png` — source artwork for the ivory rocker app icon.
+- `generate-icon.swift` — renders `AppIcon` with native tile masking (run by `build-app.sh`).
 - `Tests/ToggleTests/` — parsers, subprocess edge cases, and a read-only refresh
   smoke test (the system-services smoke test is skipped on headless CI runners).
 - `.github/workflows/ci.yml` — strict-concurrency build, tests, and universal package verification.

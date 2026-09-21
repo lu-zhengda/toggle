@@ -9,7 +9,7 @@ struct ToggleApp: App {
             ContentView(controller: controller)
                 .background(PanelCorners())
         } label: {
-            Image(systemName: menuBarSymbol)
+            menuBarImage
                 .accessibilityLabel(menuBarAccessibilityLabel)
         }
         .menuBarExtraStyle(.window)
@@ -19,10 +19,10 @@ struct ToggleApp: App {
         }
     }
 
-    private var menuBarSymbol: String {
-        if controller.feedback?.isError == true { return "exclamationmark.triangle.fill" }
-        if controller.keepAwake { return "cup.and.saucer.fill" }
-        return "switch.2"
+    private var menuBarImage: Image {
+        if controller.feedback?.isError == true { return Image(systemName: "exclamationmark.triangle.fill") }
+        if controller.keepAwake { return Image(systemName: "cup.and.saucer.fill") }
+        return Image(nsImage: ToggleMark.menuBarImage)
     }
 
     private var menuBarAccessibilityLabel: String {
