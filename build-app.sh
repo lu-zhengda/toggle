@@ -15,6 +15,13 @@ DEFAULT_SIGNING_IDENTITY="Developer ID Application: Zhengda Lu (XY7H3QGJ2T)"
 SIGNING_IDENTITY="${TOGGLE_CODESIGN_IDENTITY:-${DEFAULT_SIGNING_IDENTITY}}"
 BUILD_ARGS=(-c release --arch arm64 --arch x86_64)
 
+# Release automation sets TOGGLE_VERSION to the planned X.Y.Z. Both bundle
+# versions stay equal. Unset, local and CI bundles use the fallback.
+VERSION="${TOGGLE_VERSION:-1.5.1}"
+if [[ ! "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    fail "TOGGLE_VERSION must be MAJOR.MINOR.PATCH without leading zeros (got: ${VERSION})"
+fi
+
 fail() {
     echo "error: $*" >&2
     exit 1
@@ -76,8 +83,8 @@ cat > "${INFO_PLIST}" <<PLIST
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleExecutable</key><string>${APP_NAME}</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>1.5.1</string>
-    <key>CFBundleShortVersionString</key><string>1.5.1</string>
+    <key>CFBundleVersion</key><string>${VERSION}</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -129,7 +136,7 @@ for arch in arm64 x86_64; do
     esac
 done
 codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
-echo "    plist valid; icon present; architectures: ${ACTUAL_ARCHS}"
+echo "    plist valid; icon present; architectures: ${ACTUAL_ARCHS}; version ${SHORT_VERSION}"
 echo "    signature valid: ${SIGNING_IDENTITY}"
 
 echo "==> Done: ${APP_DIR}"

@@ -1,0 +1,45 @@
+name: Verify published Toggle
+
+# Manual re-verification of a published release. Never scheduled. Releases are
+# created by release-publish.yml with GITHUB_TOKEN, which does not trigger
+# `release: published`; that workflow runs the same script in its
+# verify-published-release job.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published version (leave blank for latest)'
+        type: string
+        required: false
+        default: ''
+      install_cask:
+        description: 'Install, launch, and uninstall the Homebrew cask'
+        type: boolean
+        default: true
+
+concurrency:
+  group: verify-published-toggle
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Verify the published DMG, checksums, and cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          INSTALL_CASK: ${{ inputs.install_cask }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$INSTALL_CASK" == true ]]; then args+=(--install-cask); fi
+          if [[ -n "$VERSION" ]]; then args+=("$VERSION"); fi
+          ./script/verify-release.sh ${args[@]+"${args[@]}"}
