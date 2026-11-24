@@ -9,6 +9,21 @@ one-tap system switches. It ships as a menu-bar-only agent
 (`LSUIElement`), built with Swift Package Manager and packaged into a `.app` by a
 shell script (no Xcode project).
 
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `Sources/Toggle/` | App entry, UI, `SystemController`, and system bridges |
+| `Tests/ToggleTests/` | Parsers, subprocess reliability, read-only smoke tests |
+| `Package.swift` | SPM executable target `Toggle` |
+| `build-app.sh` | Assembles universal `build/Toggle.app` and embeds the icon |
+| `Assets/RockerArtwork.png` | Source artwork for the app icon |
+| `generate-icon.swift` | Renders `AppIcon` (run by `build-app.sh`) |
+| `script/build_and_run.sh` | Rebuild, relaunch, and verify the process |
+| `.github/workflows/ci.yml` | macOS CI (`build-test-package` job) |
+| `docs/RELEASING.md` | Manual release today and planned release-on-merge |
+| `docs/lessons.md` | Release and CI notes |
+
 ## Build / run / package
 
 ```sh
@@ -24,30 +39,41 @@ relevant live toggle. Many toggles can also be sanity-checked from the shell by
 running the same read command the app uses (e.g.
 `defaults read -g AppleInterfaceStyle`).
 
-## Releasing a new version
+Releases: see `docs/RELEASING.md` (manual today; labeled merge to `main` will drive
+CI publishing once release automation lands).
 
-The app checks GitHub Releases for updates, and it's distributed via a Homebrew
-cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
-**Both must be updated** — bumping the release without the cask leaves
-`brew upgrade` users behind (and vice versa). Full flow, e.g. `X.Y.Z`:
+## Continuous integration
 
-1. Bump the version in `build-app.sh` (both `CFBundleVersion` and
-   `CFBundleShortVersionString` — it's the only place the version lives).
-2. Commit code + bump. End the message with the `Co-Authored-By` trailer.
-3. `./build-app.sh`, then zip the bundle the same way the assets are packaged:
-   `cd build && ditto -c -k --sequesterRsrc --keepParent Toggle.app Toggle.zip`
-   (verify `defaults read "$PWD/Toggle.app/Contents/Info" CFBundleShortVersionString`).
-4. `git push` and cut the release — tag `vX.Y.Z`, title `Toggle X.Y.Z`, asset
-   `Toggle.zip`:
-   `gh release create vX.Y.Z --repo lu-zhengda/toggle --title "Toggle X.Y.Z" --notes "…" build/Toggle.zip`
-   (in-app "Check for updates" hits `releases/latest`, so it must be marked Latest —
-   the newest non-prerelease release is, automatically).
-5. Update the cask in the tap: set `version` and `sha256` (the asset's sha256 —
-   `shasum -a 256 build/Toggle.zip`, or the release asset `.digest`). Commit via
-   the API since the tap isn't checked out locally:
-   `gh api -X PUT repos/lu-zhengda/homebrew-tap/contents/Casks/toggle.rb -f message="toggle X.Y.Z" -f sha="$(gh api repos/lu-zhengda/homebrew-tap/contents/Casks/toggle.rb --jq .sha)" -f content="$(base64 < newcask.rb)"`
+- **Runner:** `macos-15` (GitHub-hosted).
+- **Required status check:** job `build-test-package` in `.github/workflows/ci.yml` (workflow **CI**).
+- **Triggers:** `push` to `main`, `pull_request`. No `schedule:` — Actions here are CI/CD only.
+- **Actions:** every `uses:` stays pinned to a full commit SHA with a trailing `# vX.Y.Z` comment. Do not add floating `@vN` refs.
+- **Concurrency:** `group: ${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`.
 
-## Layout
+The `build-test-package` job runs strict-concurrency `swift build`, `swift test`, and `./build-app.sh`.
+
+## Contributing and workflow rules
+
+- Every change lands via **pull request** to `main` (squash merge). Never push directly to `main`.
+- To **publish a new release** (once release automation exists), add exactly one label on the PR:
+  `semver:major`, `semver:minor`, or `semver:patch`. Merging with that label publishes the next
+  `vX.Y.Z`. **No semver label means no release** — leave docs-only and CI-only PRs unlabeled.
+- **Public-repo hygiene:** PRs, issues, docs, and test fixtures must never describe anyone's private
+  dev environment — no machine names, home or temp paths, or pasted local logs. Use neutral
+  placeholders in examples.
+
+## Tests
+
+CI and local verification:
+
+```sh
+swift build
+swift test
+```
+
+Optional full packaging check (macOS): `./build-app.sh` after tests pass.
+
+## Layout (source)
 
 - `Package.swift` — SPM executable target `Toggle`. Links the public frameworks
   used at runtime; the private `CoreBrightness` bridge is resolved dynamically so
@@ -62,12 +88,8 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   - `WiFi.swift` — CoreWLAN-backed Wi-Fi power control (no interface guessing).
   - `SystemParsing.swift` — pure version/defaults/power parsers.
   - `NightShift.swift`, `TrueTone.swift`, `Bluetooth.swift` — bridges to system APIs.
-- `build-app.sh` — assembles the `.app` bundle and generates the icon.
-- `Assets/RockerArtwork.png` — source artwork for the ivory rocker app icon.
-- `generate-icon.swift` — renders `AppIcon` with native tile masking (run by `build-app.sh`).
 - `Tests/ToggleTests/` — parsers, subprocess edge cases, and a read-only refresh
   smoke test (the system-services smoke test is skipped on headless CI runners).
-- `.github/workflows/ci.yml` — strict-concurrency build, tests, and universal package verification.
 
 ## Architecture & conventions
 
@@ -91,8 +113,8 @@ cask in a **separate repo** (`lu-zhengda/homebrew-tap`, file `Casks/toggle.rb`).
   `unsafeBitCast`ing a runtime-resolved class (`NightShift`, `TrueTone`), or via
   `dlsym` (`BluetoothPower`). All are guarded — features degrade to hidden/no-op if
   the API isn't present. Don't assume they exist.
-- **Wi-Fi uses CoreWLAN's current system interface** — never hardcode `en0`; this
-  machine uses `en1`.
+- **Wi-Fi uses CoreWLAN's current system interface** — never hardcode `en0` or
+  guess interface names; use the API's notion of the active Wi-Fi interface.
 - **Low Power Mode mutations require root.** Keep the single retained,
   parameterized `NSAppleScript` invariant so macOS can reuse its brief
   authorization cache; interpolating the state into script source causes a new
