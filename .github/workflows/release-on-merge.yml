@@ -1,0 +1,112 @@
+name: Release on merge
+
+# A pull request merged into main with exactly one semver:major, semver:minor,
+# or semver:patch label publishes the next vX.Y.Z. No label publishes nothing.
+# More than one semver label fails the plan job. workflow_dispatch on main
+# publishes with a chosen bump for recovery (a forgotten label, a failed plan,
+# a cancelled run, or a merge from a fork, whose pull_request runs get no
+# secrets). Pull request opened/synchronize events never run this file; CI's
+# build-test-package job runs script/test-plan-release.sh instead.
+# Signing runs only in the called publish workflow, and only after plan
+# sets publish=true. Runners are GitHub-hosted macos-15.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver bump from the latest vX.Y.Z tag
+        type: choice
+        options: [patch, minor, major]
+        required: true
+
+permissions: {}
+
+# Runs that can publish share one group and never cancel each other, so two
+# merges cannot sign or tag at the same time. GitHub keeps one pending run per
+# group; closed pull requests that cannot publish use their own group so they
+# never displace a pending release.
+concurrency:
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true &&
+    (contains(github.event.pull_request.labels.*.name, 'semver:major') ||
+    contains(github.event.pull_request.labels.*.name, 'semver:minor') ||
+    contains(github.event.pull_request.labels.*.name, 'semver:patch'))))
+    && 'toggle-release' || format('toggle-release-noop-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - name: Choose the commit to release
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$DISPATCH_REF" != refs/heads/main ]]; then
+              echo "manual releases run from main, not $DISPATCH_REF"
+              exit 1
+            fi
+            sha=$DISPATCH_SHA
+          else
+            sha=$MERGE_SHA
+          fi
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "no merge commit to release"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # fetch-depth 0 also fetches tags. The planner reads those tags.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.target.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Choose the semver bump
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BUMP: ${{ inputs.bump }}
+        run: ./script/plan-release.sh
+
+  release:
+    needs: plan
+    # A custom if replaces the implicit success check. Require a successful
+    # plan so a failed multi-label plan cannot publish.
+    if: needs.plan.result == 'success' && needs.plan.outputs.publish == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-publish.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+      version: ${{ needs.plan.outputs.version }}
+      sha: ${{ needs.plan.outputs.sha }}
+      pr_number: ${{ github.event.pull_request.number || '' }}
+      pr_title: ${{ github.event.pull_request.title || '' }}
+    secrets:
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      APPSTORE_API_KEY_P8_BASE64: ${{ secrets.APPSTORE_API_KEY_P8_BASE64 }}
+      APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+      APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -1,0 +1,361 @@
+name: Release publish
+
+# Builds, signs, notarizes, and publishes one Toggle release, bumps the Homebrew
+# cask, then installs that cask on a clean runner. Called by
+# release-on-merge.yml after it has chosen the tag. GitHub-hosted macos-15
+# only. A release created with GITHUB_TOKEN does not trigger `release:
+# published`, so verification runs here instead of in verify-release.yml.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag, for example v1.5.2
+        required: true
+        type: string
+      version:
+        description: Version without the leading v
+        required: true
+        type: string
+      sha:
+        description: Full commit SHA to build and tag
+        required: true
+        type: string
+      pr_number:
+        description: Merged pull request number, empty for a manual run
+        required: false
+        type: string
+        default: ''
+      pr_title:
+        description: Merged pull request title, empty for a manual run
+        required: false
+        type: string
+        default: ''
+    secrets:
+      MACOS_CERT_P12_BASE64:
+        required: true
+      MACOS_CERT_PASSWORD:
+        required: true
+      APPSTORE_API_KEY_P8_BASE64:
+        required: true
+      APPSTORE_API_KEY_ID:
+        required: true
+      APPSTORE_API_ISSUER_ID:
+        required: true
+      HOMEBREW_TAP_TOKEN:
+        required: true
+
+permissions: {}
+
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
+  RELEASE_VERSION: ${{ inputs.version }}
+  RELEASE_SHA: ${{ inputs.sha }}
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.check.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Check the release inputs and checkout
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ || "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]]; then
+            echo "checkout is not the release commit"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ || "$RELEASE_TAG" != "v$RELEASE_VERSION" ]]; then
+            echo "inconsistent release inputs: $RELEASE_TAG, $RELEASE_VERSION"
+            exit 1
+          fi
+
+      - name: Test
+        run: swift test
+
+      - name: Import the Developer ID certificate and notarization key
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/toggle-signing.keychain-db
+          P12_PATH: ${{ runner.temp }}/toggle-developer-id.p12
+          ASC_KEY_PATH: ${{ runner.temp }}/toggle-authkey.p8
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPSTORE_API_KEY_P8_BASE64: ${{ secrets.APPSTORE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD APPSTORE_API_KEY_P8_BASE64; do
+            if [[ -z "${!name}" ]]; then
+              echo "$name is empty. Add it under Settings > Secrets and variables > Actions (see docs/RELEASING.md)."
+              exit 1
+            fi
+          done
+          # Workflow commands treat % and newlines as escapes.
+          add_mask() {
+            local value=$1
+            value=${value//%/%25}
+            value=${value//$'\r'/%0D}
+            value=${value//$'\n'/%0A}
+            echo "::add-mask::$value"
+          }
+          cert_password=$(printf '%s' "$MACOS_CERT_PASSWORD")
+          add_mask "$cert_password"
+          keychain_password=$(openssl rand -hex 32)
+          add_mask "$keychain_password"
+          trap 'rm -f "$P12_PATH"' EXIT
+
+          printf '%s' "$MACOS_CERT_P12_BASE64" | tr -d '[:space:]' | openssl enc -d -base64 -A -out "$P12_PATH"
+          printf '%s' "$APPSTORE_API_KEY_P8_BASE64" | tr -d '[:space:]' | openssl enc -d -base64 -A -out "$ASC_KEY_PATH"
+          test -s "$P12_PATH" || { echo "MACOS_CERT_P12_BASE64 decoded to an empty file"; exit 1; }
+          grep -q -- '-----BEGIN PRIVATE KEY-----' "$ASC_KEY_PATH" || { echo "APPSTORE_API_KEY_P8_BASE64 is not a PKCS#8 PEM key"; exit 1; }
+
+          security create-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN_PATH"
+          security import "$P12_PATH" -k "$KEYCHAIN_PATH" -P "$cert_password" -f pkcs12 -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$KEYCHAIN_PATH" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          identities=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")
+          printf '%s\n' "$identities"
+          valid=$(grep -Ec '^ *[0-9]+\) [0-9A-F]{40} ' <<< "$identities" || true)
+          developer_id=$(grep -E '^ *[0-9]+\) [0-9A-F]{40} "Developer ID Application: .* \(XY7H3QGJ2T\)"$' <<< "$identities" || true)
+          if [[ "$valid" != 1 || -z "$developer_id" ]]; then
+            echo "expected exactly one identity, Developer ID Application for team XY7H3QGJ2T"
+            exit 1
+          fi
+          name=$(printf '%s\n' "$developer_id" | sed -n 's/.*"\(Developer ID Application: .* (XY7H3QGJ2T)\)".*/\1/p')
+          if [[ -z "$name" || "$name" == *"="* || "$name" == *$'\n'* ]]; then
+            echo "could not read the Developer ID common name"
+            exit 1
+          fi
+          printf 'TOGGLE_CODESIGN_IDENTITY=%s\n' "$name" >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarize, and staple Toggle.app and the disk image
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/toggle-authkey.p8
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          unset NOTARY_PROFILE
+          ASC_KEY_ID=$(printf '%s' "$APPSTORE_API_KEY_ID" | tr -d '[:space:]')
+          ASC_ISSUER_ID=$(printf '%s' "$APPSTORE_API_ISSUER_ID" | tr -d '[:space:]')
+          if [[ -z "$ASC_KEY_ID" || -z "$ASC_ISSUER_ID" ]]; then
+            echo "APPSTORE_API_KEY_ID and APPSTORE_API_ISSUER_ID must be set"
+            exit 1
+          fi
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
+          export ASC_KEY_ID ASC_ISSUER_ID
+          # script/release.sh notarizes with notarytool submit --wait, staples,
+          # and runs spctl -a -vv on the app and the DMG.
+          ./script/release.sh
+
+      - name: Verify the signed release before publishing
+        id: check
+        run: |
+          set -euo pipefail
+          image="Toggle-$RELEASE_VERSION.dmg"
+          diff <(printf '%s\n' "$image" Toggle.zip checksums.txt | LC_ALL=C sort) <(cd dist && printf '%s\n' * | LC_ALL=C sort)
+          (cd dist && shasum -a 256 -c checksums.txt)
+          # Gatekeeper, staple, Developer ID, and the embedded app.
+          ./script/verify-image.sh "dist/$image" "$RELEASE_VERSION" --distribution
+          echo "sha256=$(shasum -a 256 "dist/$image" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: toggle-${{ inputs.tag }}
+          path: |
+            dist/Toggle-${{ inputs.version }}.dmg
+            dist/Toggle.zip
+            dist/checksums.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Delete the temporary keychain and keys
+        if: always()
+        env:
+          KEYCHAIN_PATH: ${{ runner.temp }}/toggle-signing.keychain-db
+          P12_PATH: ${{ runner.temp }}/toggle-developer-id.p12
+          ASC_KEY_PATH: ${{ runner.temp }}/toggle-authkey.p8
+        run: |
+          set -euo pipefail
+          if [[ -f "$KEYCHAIN_PATH" ]]; then security delete-keychain "$KEYCHAIN_PATH"; fi
+          rm -f "$P12_PATH" "$ASC_KEY_PATH"
+          for path in "$KEYCHAIN_PATH" "$P12_PATH" "$ASC_KEY_PATH"; do
+            if [[ -e "$path" ]]; then
+              echo "signing material still present after cleanup"
+              exit 1
+            fi
+          done
+
+  publish:
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: true
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: toggle-${{ inputs.tag }}
+          path: dist
+
+      - name: Check the downloaded assets
+        env:
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          image="Toggle-$RELEASE_VERSION.dmg"
+          diff <(printf '%s\n' "$image" Toggle.zip checksums.txt | LC_ALL=C sort) <(cd dist && printf '%s\n' * | LC_ALL=C sort)
+          grep -Fx "$SHA256  $image" dist/checksums.txt
+          (cd dist && shasum -a 256 -c checksums.txt)
+
+      - name: Tag the release commit
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          remote=$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+          if [[ -n "$remote" ]]; then
+            peeled=$(awk -v ref="refs/tags/$RELEASE_TAG^{}" '$2 == ref {print $1}' <<< "$remote")
+            tagged=${peeled:-$(awk '{print $1; exit}' <<< "$remote")}
+            if [[ "$tagged" != "$RELEASE_SHA" ]]; then
+              echo "$RELEASE_TAG already points at $tagged, not $RELEASE_SHA; refusing to move it"
+              exit 1
+            fi
+            echo "$RELEASE_TAG already points at $RELEASE_SHA"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$RELEASE_TAG" "$RELEASE_SHA" -m "Toggle $RELEASE_VERSION"
+          git push origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git ls-remote origin "refs/tags/$RELEASE_TAG^{}" | cut -f1)" = "$RELEASE_SHA"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_TITLE: ${{ inputs.pr_title }}
+        run: |
+          set -euo pipefail
+          if draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$draft" != true ]]; then
+              echo "$RELEASE_TAG is already published"
+              exit 1
+            fi
+            echo "removing the draft left by an interrupted upload"
+            gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes
+          fi
+          notes="$RUNNER_TEMP/notes.md"
+          if [[ -n "$PR_NUMBER" ]]; then
+            printf '%s ([#%s](%s/%s/pull/%s))\n' "$PR_TITLE" "$PR_NUMBER" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$PR_NUMBER" > "$notes"
+          else
+            printf 'Manual release of %s from main.\n' "$RELEASE_SHA" > "$notes"
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
+            --title "Toggle $RELEASE_VERSION" --notes-file "$notes" --generate-notes \
+            "dist/Toggle-$RELEASE_VERSION.dmg" dist/Toggle.zip dist/checksums.txt
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url,isDraft,isPrerelease,assets \
+            --jq '.url, .isDraft, .isPrerelease, .assets[].name'
+
+  homebrew-cask:
+    needs: [build, publish]
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Bump Casks/toggle.rb in lu-zhengda/homebrew-tap
+        env:
+          SHA256: ${{ needs.build.outputs.sha256 }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0 GIT_EDITOR=true
+          if [[ -z "${RUNNER_TEMP:-}" ]]; then echo "RUNNER_TEMP is not set"; exit 1; fi
+          if [[ -z "$HOMEBREW_TAP_TOKEN" ]]; then echo "HOMEBREW_TAP_TOKEN is empty"; exit 1; fi
+          if [[ ! "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ || ! "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "unexpected version or sha256"
+            exit 1
+          fi
+          tap="$RUNNER_TEMP/homebrew-tap"
+          git clone --quiet https://github.com/lu-zhengda/homebrew-tap.git "$tap"
+          branch=$(git -C "$tap" symbolic-ref --short refs/remotes/origin/HEAD)
+          branch=${branch#origin/}
+          cask="$tap/Casks/toggle.rb"
+          ./script/update-cask.sh "$cask" "$RELEASE_VERSION" "$SHA256"
+          if command -v ruby >/dev/null; then ruby -c "$cask"; fi
+          cd "$tap"
+          if git diff --quiet; then
+            echo "cask already has toggle $RELEASE_VERSION"
+            exit 0
+          fi
+          names=$(git diff --name-only)
+          if [[ "$names" != "Casks/toggle.rb" ]]; then
+            echo "unexpected files in the cask checkout"
+            printf '%s\n' "$names"
+            exit 1
+          fi
+          git diff
+          header=$(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$header"
+          trap 'git config --unset-all http.https://github.com/.extraheader || true' EXIT
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $header"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -am "toggle $RELEASE_VERSION"
+          for attempt in 1 2 3; do
+            if git push --quiet origin "HEAD:refs/heads/$branch"; then
+              echo "pushed toggle $RELEASE_VERSION to $branch"
+              exit 0
+            fi
+            echo "push attempt $attempt was rejected; rebasing on $branch"
+            if ! git pull --quiet --rebase origin "$branch"; then
+              echo "could not rebase the cask update"
+              exit 1
+            fi
+          done
+          echo "could not push the cask update"
+          exit 1
+
+  verify-published-release:
+    needs: [publish, homebrew-cask]
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      # verify-release.sh downloads the DMG, Toggle.zip, and checksums.txt,
+      # checks SHA-256, runs spctl -a -vv and stapler validate on the DMG and
+      # the app, installs the cask, launches Toggle, and uninstalls it.
+      - name: Install the published cask and verify Toggle.app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ./script/verify-release.sh --install-cask "$RELEASE_TAG"

@@ -20,8 +20,14 @@ shell script (no Xcode project).
 | `Assets/RockerArtwork.png` | Source artwork for the app icon |
 | `generate-icon.swift` | Renders `AppIcon` (run by `build-app.sh`) |
 | `script/build_and_run.sh` | Rebuild, relaunch, and verify the process |
+| `script/plan-release.sh` | Next `vX.Y.Z` from semver labels and stable tags |
+| `script/release.sh` | Sign, notarize, and package the DMG and `Toggle.zip` |
+| `script/update-cask.sh` | Idempotent Homebrew cask version, sha256, and DMG url |
 | `.github/workflows/ci.yml` | macOS CI (`build-test-package` job) |
-| `docs/RELEASING.md` | Manual release today and planned release-on-merge |
+| `.github/workflows/release-on-merge.yml` | Workflow **Release on merge** |
+| `.github/workflows/release-publish.yml` | Build, publish, cask bump, and post-publish verify |
+| `.github/workflows/verify-release.yml` | Manual workflow **Verify published Toggle** |
+| `docs/RELEASING.md` | How a labeled merge publishes a release |
 | `docs/lessons.md` | Release and CI notes |
 
 ## Build / run / package
@@ -39,8 +45,9 @@ relevant live toggle. Many toggles can also be sanity-checked from the shell by
 running the same read command the app uses (e.g.
 `defaults read -g AppleInterfaceStyle`).
 
-Releases: see `docs/RELEASING.md` (manual today; labeled merge to `main` will drive
-CI publishing once release automation lands).
+Releases: see `docs/RELEASING.md`. A merged pull request into `main` with exactly
+one `semver:*` label publishes the next version. Do not add that label unless
+the pull request should ship.
 
 ## Continuous integration
 
@@ -50,14 +57,14 @@ CI publishing once release automation lands).
 - **Actions:** every `uses:` stays pinned to a full commit SHA with a trailing `# vX.Y.Z` comment. Do not add floating `@vN` refs.
 - **Concurrency:** `group: ${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`.
 
-The `build-test-package` job runs strict-concurrency `swift build`, `swift test`, and `./build-app.sh`.
+The `build-test-package` job runs `script/test-plan-release.sh`, `script/test-update-cask.sh`, strict-concurrency `swift build`, `swift test`, and `./build-app.sh`.
+
+Release workflows (**Release on merge**, **Verify published Toggle**) also run on GitHub-hosted `macos-15`. Their concurrency does not cancel an in-progress run. Neither workflow is scheduled. Signing secrets are used only after a merged, exactly-one-label plan (or a manual run from `main`) selects a version.
 
 ## Contributing and workflow rules
 
 - Every change lands via **pull request** to `main` (squash merge). Never push directly to `main`.
-- To **publish a new release** (once release automation exists), add exactly one label on the PR:
-  `semver:major`, `semver:minor`, or `semver:patch`. Merging with that label publishes the next
-  `vX.Y.Z`. **No semver label means no release** — leave docs-only and CI-only PRs unlabeled.
+- To **publish a release**, add exactly one of `semver:major`, `semver:minor`, or `semver:patch` before merging into `main`. **Release on merge** bumps the latest stable `vX.Y.Z` tag (a patch on `v1.5.1` publishes `v1.5.2`). **No semver label means no release.** More than one semver label fails the plan job. Leave docs-only and CI-only pull requests unlabeled.
 - **Public-repo hygiene:** PRs, issues, docs, and test fixtures must never describe anyone's private
   dev environment — no machine names, home or temp paths, or pasted local logs. Use neutral
   placeholders in examples.
@@ -67,6 +74,8 @@ The `build-test-package` job runs strict-concurrency `swift build`, `swift test`
 CI and local verification:
 
 ```sh
+./script/test-plan-release.sh
+./script/test-update-cask.sh
 swift build
 swift test
 ```
@@ -129,6 +138,12 @@ Optional full packaging check (macOS): `./build-app.sh` after tests pass.
   Info.plist (`NSAppleEventsUsageDescription`, `NSBluetoothAlwaysUsageDescription`),
   and the Apple Events entitlement in `Toggle.entitlements`. Release builds use
   Developer ID when its signing identity is installed; CI falls back to ad-hoc signing.
+- **Release versions are stamped at package time.** `build-app.sh` writes the same
+  `TOGGLE_VERSION` into `CFBundleShortVersionString` and `CFBundleVersion` (they must
+  stay equal). The release workflow sets `TOGGLE_VERSION` from the planned tag and
+  does not commit a version bump. There is no Sparkle feed and no appcast. In-app
+  update checks compare `releases/latest` `tag_name` with the short version; they
+  do not download an asset by name.
 
 ## Adding a new toggle
 
