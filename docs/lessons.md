@@ -35,3 +35,7 @@ leave `depends_on macos: :sonoma` in place.
 `X.Y.Z` is stamped into both via `TOGGLE_VERSION`. There is no Sparkle build
 number and no appcast. `actions/checkout` with `fetch-depth: 0` fetches tags;
 the planner needs those tags. Signing runs only on GitHub-hosted `macos-15`.
+**First automated release is a patch.** v1.5.2 was cut only to prove the
+pipeline end to end: plan, sign, notarize, staple, DMG, checksums, cask bump,
+and the post-publish verify job. A no-code `semver:patch` PR is the cheapest
+way to exercise a new release workflow before real changes depend on it.
