@@ -22,6 +22,6 @@ custom_rules:
     severity: error
   no_plain_trailing_comment:
     name: "Plain trailing // comments"
-    regex: '[^:]//(?!/|\s*MARK:)'
+    regex: '[^:/]//(?!/|\s*MARK:)'
     message: "Use `///`, `// MARK:`, or delete redundant trailing `//` comments."
     severity: error
