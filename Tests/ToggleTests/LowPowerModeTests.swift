@@ -18,11 +18,14 @@ final class LowPowerModeTests: XCTestCase {
     }
 
     func testHandlerReceivesStateAsAnAppleEventArgument() {
-        let script = NSAppleScript(source: """
+        let source = """
         on echoState(requestedState)
             return requestedState as text
         end echoState
-        """)!
+        """
+        guard let script = NSAppleScript(source: source) else {
+            return XCTFail("Expected test handler script to compile")
+        }
 
         let result = LowPowerMode.execute(
             script: script,

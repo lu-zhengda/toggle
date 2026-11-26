@@ -49,6 +49,10 @@ enum Shell {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Both streams must be drained concurrently; reading only stdout can deadlock
+    /// if the child fills the stderr pipe before it exits. After termination, stop
+    /// readers with a bounded wait so we never close a `FileHandle` under an
+    /// in-flight blocking Foundation read.
     private static func executeBlocking(
         _ launchPath: String,
         _ args: [String],
@@ -78,8 +82,6 @@ enum Shell {
             )
         }
 
-        // Both streams must be drained concurrently. Reading only stdout can
-        // deadlock if the child fills the stderr pipe before it exits.
         let stdout = LockedData()
         let stderr = LockedData()
         let stopReaders = LockedFlag()
@@ -106,10 +108,6 @@ enum Shell {
             }
         }
 
-        // A killed process normally closes both pipes immediately. A descendant
-        // can retain a writer fd, though, so stop the nonblocking readers after
-        // a bounded drain instead of closing a FileHandle underneath a blocking
-        // Foundation read (which raises an uncatchable NSException on macOS 15).
         if readers.wait(timeout: .now() + terminationGracePeriod) == .timedOut {
             stopReaders.set()
             readers.wait()
@@ -149,8 +147,6 @@ enum Shell {
                 return
             }
 
-            // Read one available chunk, then return to `poll` so cancellation is
-            // observed without relying on nonblocking FileHandle configuration.
             let count = buffer.withUnsafeMutableBytes { bytes in
                 Darwin.read(descriptor, bytes.baseAddress, bytes.count)
             }

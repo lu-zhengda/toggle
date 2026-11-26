@@ -1,6 +1,5 @@
 import AppKit
 
-// Package the selected rocker artwork inside a clean, consistently sized macOS tile.
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon.png"
 guard let artwork = NSImage(contentsOfFile: "Assets/RockerArtwork.png"),
       let rep = NSBitmapImageRep(
@@ -26,7 +25,6 @@ tile.fill()
 NSGraphicsContext.restoreGraphicsState()
 
 tile.addClip()
-// Trim the generated artwork's transparent margin; the native path owns the outer edge.
 artwork.draw(in: rect,
              from: NSRect(x: artwork.size.width * 132 / 1254,
                           y: artwork.size.height * 146 / 1254,

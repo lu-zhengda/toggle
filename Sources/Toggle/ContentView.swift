@@ -340,7 +340,6 @@ struct ContentView: View {
 
             Button {
                 openSettings()
-                // Menu-bar-only apps do not become active just by opening Settings.
                 NSApplication.shared.activate(ignoringOtherApps: true)
             } label: {
                 Image(systemName: "gearshape.fill")
@@ -366,7 +365,6 @@ struct ContentView: View {
                        isOn: controller.nightShift, action: controller.toggleNightShift)
         }
 
-        // Always shown; disabled (greyed) when the display/Mac lacks True Tone.
         IconButton(glyph: .symbol("sun.haze.fill"), title: "True Tone",
                    isOn: controller.trueTone,
                    disabled: !controller.trueToneAvailable,
@@ -384,7 +382,6 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var focus: some View {
-        // Keep Awake — tap toggles indefinitely; right-click for a timer.
         IconButton(glyph: .symbol("cup.and.saucer.fill"), title: keepAwakeTitle,
                    isOn: controller.keepAwake,
                    accessibilityLabel: "Keep Awake",
