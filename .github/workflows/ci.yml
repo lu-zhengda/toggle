@@ -21,6 +21,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: SwiftLint
+        run: swiftlint --strict
+
       - name: Test release planning
         run: |
           ./script/test-plan-release.sh
@@ -38,3 +41,26 @@ jobs:
 
       - name: Build and verify universal app bundle
         run: ./build-app.sh
+
+  pull-request-standard:
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened", "synchronize", "edited"]'), github.event.action)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Test pull request checker
+        run: ./script/test-check-pull-request.sh
+
+      - name: Verify pull request format
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: ./script/check-pull-request.sh

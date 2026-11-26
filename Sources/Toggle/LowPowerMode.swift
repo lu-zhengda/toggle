@@ -54,26 +54,33 @@ enum LowPowerMode {
     /// Invoke an AppleScript handler using a parameter instead of changing the
     /// script source. Kept internal so tests can verify the event bridge without
     /// executing the privileged script.
+    private enum AppleEventCode {
+        static let ascr: UInt32 = 0x6173_6372
+        static let psbr: UInt32 = 0x7073_6272
+        static let handlerName: UInt32 = 0x736E_616D
+        static let arguments: UInt32 = 0x2D2D_2D2D
+    }
+
     static func execute(
         script: NSAppleScript,
         handler: String,
         argument: String
     ) -> (output: NSAppleEventDescriptor?, error: NSDictionary?) {
         let event = NSAppleEventDescriptor(
-            eventClass: 0x6173_6372,       // 'ascr'
-            eventID: 0x7073_6272,          // 'psbr'
+            eventClass: AppleEventCode.ascr,
+            eventID: AppleEventCode.psbr,
             targetDescriptor: nil,
             returnID: -1,
             transactionID: 0
         )
         event.setParam(
             NSAppleEventDescriptor(string: handler),
-            forKeyword: 0x736E_616D        // 'snam'
+            forKeyword: AppleEventCode.handlerName
         )
 
         let arguments = NSAppleEventDescriptor.list()
         arguments.insert(NSAppleEventDescriptor(string: argument), at: 1)
-        event.setParam(arguments, forKeyword: 0x2D2D_2D2D) // '----'
+        event.setParam(arguments, forKeyword: AppleEventCode.arguments)
 
         var error: NSDictionary?
         let output = script.executeAppleEvent(event, error: &error)

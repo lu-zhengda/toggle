@@ -54,7 +54,8 @@ struct ActionFeedback: Equatable, Sendable {
 @MainActor
 final class SystemController: ObservableObject {
 
-    // Stateful toggles
+    // MARK: - Stateful toggles
+
     @Published var darkMode = false
     @Published var hideDesktopIcons = false
     @Published var showHiddenFiles = false
@@ -74,7 +75,8 @@ final class SystemController: ObservableObject {
     @Published var audioOutputID: AudioDeviceID = 0
     @Published var airDropMode = "Off"
 
-    // Settings
+    // MARK: - Settings
+
     @Published var launchAtLogin = false
     @Published var keepAwakeMode: KeepAwakeMode {
         didSet {
@@ -91,7 +93,8 @@ final class SystemController: ObservableObject {
     @Published var bluetoothWarningSuppressed = false
     @Published var launchAtLoginStatus: String?
 
-    // Operation health shown in the compact panel.
+    // MARK: - Operation health
+
     @Published private(set) var isRefreshing = false
     @Published private(set) var hasLoadedState = false
     @Published private(set) var feedback: ActionFeedback?
@@ -99,7 +102,6 @@ final class SystemController: ObservableObject {
     @Published private(set) var airPodsDevices: [AirPodsDevice] = []
     @Published private(set) var airPodsSelectedID: String?
 
-    // Availability is refreshed off-main so rendering never touches slow APIs.
     @Published private(set) var trueToneAvailable = false
     @Published private(set) var airPodsAvailable = false
     @Published private(set) var lowPowerModeAvailable = false
@@ -118,7 +120,6 @@ final class SystemController: ObservableObject {
         airPodsAvailable && airPodsSelectedID == nil && airPodsDevices.count > 1
     }
 
-    // Feature availability (drives whether a tile is shown)
     let nightShiftAvailable = NightShift.isAvailable
     let bluetoothAvailable = BluetoothPower.isAvailable
 
@@ -132,8 +133,23 @@ final class SystemController: ObservableObject {
     nonisolated private static let defaultKeepAwakeMinutesKey = "defaultKeepAwakeMinutes"
     nonisolated private static let suppressBluetoothWarningKey = "suppressBluetoothWarning"
     nonisolated private static let preferredAirPodsIDKey = "preferredAirPodsID"
-    nonisolated private static let releasesURL = URL(string: "https://github.com/lu-zhengda/toggle/releases")!
-    nonisolated private static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/lu-zhengda/toggle/releases/latest")!
+    private enum GitHubLinks {
+        static let releases: URL = {
+            guard let url = URL(string: "https://github.com/lu-zhengda/toggle/releases") else {
+                preconditionFailure("Invalid releases URL")
+            }
+            return url
+        }()
+
+        static let latestReleaseAPI: URL = {
+            guard let url = URL(
+                string: "https://api.github.com/repos/lu-zhengda/toggle/releases/latest"
+            ) else {
+                preconditionFailure("Invalid latest-release API URL")
+            }
+            return url
+        }()
+    }
 
     init() {
         airPodsPreferredID = UserDefaults.standard.string(forKey: Self.preferredAirPodsIDKey)
@@ -157,7 +173,6 @@ final class SystemController: ObservableObject {
             self.apply(snapshot)
             self.isRefreshing = false
         }
-        // Keep Awake reflects this process's own IOPM assertions.
     }
 
     private struct SystemSnapshot: Sendable {
@@ -333,7 +348,7 @@ final class SystemController: ObservableObject {
                     updateStatus = "Toggle is up to date (\(current))."
                 }
             } catch {
-                latestReleaseURL = Self.releasesURL
+                latestReleaseURL = GitHubLinks.releases
                 updateStatus = "Couldn’t check for updates. Open GitHub Releases instead."
             }
             isCheckingForUpdates = false
@@ -341,7 +356,7 @@ final class SystemController: ObservableObject {
     }
 
     func openLatestReleasePage() {
-        NSWorkspace.shared.open(latestReleaseURL ?? Self.releasesURL)
+        NSWorkspace.shared.open(latestReleaseURL ?? GitHubLinks.releases)
     }
 
     func openAccessibilitySettings() {
@@ -390,13 +405,12 @@ final class SystemController: ObservableObject {
             case htmlURL = "html_url"
         }
 
-        // The tag is the release's canonical machine-readable version. Human
-        // titles may contain unrelated numbers (for example, "2 fixes").
+        /// Release tag (`tag_name`); human titles may contain unrelated numbers.
         var version: String { tagName }
     }
 
     nonisolated private static func fetchLatestRelease() async throws -> GitHubRelease {
-        var request = URLRequest(url: latestReleaseAPIURL)
+        var request = URLRequest(url: GitHubLinks.latestReleaseAPI)
         request.timeoutInterval = 15
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Toggle", forHTTPHeaderField: "User-Agent")
@@ -415,10 +429,8 @@ final class SystemController: ObservableObject {
         await Task.detached(priority: .userInitiated, operation: operation).value
     }
 
+    /// Returns false when a refresh or another action is in flight.
     private func beginAction(_ key: String) -> Bool {
-        // Serialize mutations and never overlap them with a snapshot. Besides
-        // preventing stale refreshes, this keeps all IOBluetooth work mutually
-        // exclusive even though its adapters use separate queues.
         guard !isRefreshing, busyActions.isEmpty else { return false }
         busyActions.insert(key)
         return true
@@ -464,7 +476,6 @@ final class SystemController: ObservableObject {
     }
 
     private func showFeedback(_ message: String, symbol: String, isError: Bool = false) {
-        // Do not let a later success erase an error before the user can read it.
         if !isError, feedback?.isError == true { return }
         let value = ActionFeedback(message: message, symbol: symbol, isError: isError)
         feedback = value
@@ -509,7 +520,7 @@ final class SystemController: ObservableObject {
     // MARK: - Hide Desktop Icons
 
     func toggleHideDesktopIcons() {
-        let hide = !hideDesktopIcons // hide == don't create desktop
+        let hide = !hideDesktopIcons
         performBooleanAction(
             key: "desktopIcons",
             title: "Hide Desktop Icons",
@@ -585,7 +596,6 @@ final class SystemController: ObservableObject {
         keepAwake = false
         guard on else { return }
 
-        // Matches the user's Settings choice: caffeinate -i, -d, or -i -d.
         for type in keepAwakeMode.assertionTypes {
             var assertionID: IOPMAssertionID = 0
             let result = IOPMAssertionCreateWithName(
@@ -734,7 +744,7 @@ final class SystemController: ObservableObject {
 
     private func confirmBluetoothOff(_ summary: BluetoothConnectionSummary) -> Bool {
         let names = summary.names
-        if names.isEmpty { return true } // nothing to lose
+        if names.isEmpty { return true }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -746,7 +756,7 @@ final class SystemController: ObservableObject {
                 + "until you turn Bluetooth back on using a built-in or wired device."
         }
         alert.informativeText = info
-        alert.addButton(withTitle: "Cancel") // default — Return cancels
+        alert.addButton(withTitle: "Cancel")
         let off = alert.addButton(withTitle: "Turn Off Bluetooth")
         off.hasDestructiveAction = true
         alert.showsSuppressionButton = true
@@ -843,9 +853,6 @@ final class SystemController: ObservableObject {
         accessibilityGranted = true
         guard beginAction("doNotDisturb") else { return }
 
-        // macOS exposes no public API for Focus/DND. Drive Control Center via
-        // accessibility scripting. Requires Accessibility permission and may need
-        // tweaks across macOS versions — this is the one fragile toggle.
         let script = """
         tell application "System Events"
             tell application process "ControlCenter"
@@ -1014,9 +1021,7 @@ final class SystemController: ObservableObject {
         ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
-    // Availability: the live view (`pmset -g`) omits `lowpowermode` on some Macs /
-    // macOS versions even when it's supported, so fall back to the per-source
-    // profiles (`pmset -g custom`) before deciding the machine can't do it.
+    /// `pmset -g` can omit `lowpowermode` even when supported; fall back to `pmset -g custom`.
     nonisolated private static func lowPowerModeSupported() -> Bool {
         if SystemParsing.lowPowerModeValue(in: Shell.run("/usr/bin/pmset", ["-g"])) != nil {
             return true

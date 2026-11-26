@@ -39,3 +39,12 @@ the planner needs those tags. Signing runs only on GitHub-hosted `macos-15`.
 pipeline end to end: plan, sign, notarize, staple, DMG, checksums, cask bump,
 and the post-publish verify job. A no-code `semver:patch` PR is the cheapest
 way to exercise a new release workflow before real changes depend on it.
+
+## Lint and PR gates
+
+| Mistake | Rule | Enforced where |
+| --- | --- | --- |
+| Force casts (`as!`), `try!`, or `!` unwraps that hide real failures | `force_cast`, `force_try`, `force_unwrapping` | `.swiftlint.yml` → CI `build-test-package` (`swiftlint --strict`) |
+| `TODO` left in production sources | `todo` | `.swiftlint.yml` → CI `build-test-package` |
+| Plain `//` comments instead of `///` or `// MARK:` | `no_plain_line_comment`, `no_plain_trailing_comment` | `.swiftlint.yml` → CI `build-test-package` |
+| PR title/body that skip Why / What / blast radius / verification or omit `Fixes ZHE-*` | Conventional title + 40-line body standard | `script/check-pull-request.sh` → CI `pull-request-standard` on `opened` / `synchronize` / `edited` (Dependabot exempt) |

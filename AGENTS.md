@@ -28,7 +28,9 @@ shell script (no Xcode project).
 | `.github/workflows/release-publish.yml` | Build, publish, cask bump, and post-publish verify |
 | `.github/workflows/verify-release.yml` | Manual workflow **Verify published Toggle** |
 | `docs/RELEASING.md` | How a labeled merge publishes a release |
-| `docs/lessons.md` | Release and CI notes |
+| `docs/lessons.md` | Release, CI, and lint gate notes |
+| `.swiftlint.yml` | Swift safety and comment rules enforced in CI |
+| `script/check-pull-request.sh` | Pull request title/body standard |
 
 ## Build / run / package
 
@@ -57,7 +59,13 @@ the pull request should ship.
 - **Actions:** every `uses:` stays pinned to a full commit SHA with a trailing `# vX.Y.Z` comment. Do not add floating `@vN` refs.
 - **Concurrency:** `group: ${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true`.
 
-The `build-test-package` job runs `script/test-plan-release.sh`, `script/test-update-cask.sh`, strict-concurrency `swift build`, `swift test`, and `./build-app.sh`.
+The `build-test-package` job runs `swiftlint --strict`,
+`script/test-plan-release.sh`, `script/test-update-cask.sh`, strict-concurrency
+`swift build`, `swift test`, and `./build-app.sh`. The `pull-request-standard`
+job (pull requests only) enforces title `type(scope): subject`, a body of at most
+40 lines with **Why**, **What changed**, **Blast Radius**, and **Verification**
+sections plus a `Fixes ZHE-<n>` line (`script/check-pull-request.sh`; Dependabot
+exempt). See `docs/lessons.md` for the lint rule table.
 
 Release workflows (**Release on merge**, **Verify published Toggle**) also run on GitHub-hosted `macos-15`. Their concurrency does not cancel an in-progress run. Neither workflow is scheduled. Signing secrets are used only after a merged, exactly-one-label plan (or a manual run from `main`) selects a version.
 
@@ -68,6 +76,9 @@ Release workflows (**Release on merge**, **Verify published Toggle**) also run o
 - **Public-repo hygiene:** PRs, issues, docs, and test fixtures must never describe anyone's private
   dev environment — no machine names, home or temp paths, or pasted local logs. Use neutral
   placeholders in examples.
+- **Pull request standard:** Title `type(scope): subject` (conventional types). Body at most 40
+  lines with **Why**, **What changed**, **Blast Radius**, **Verification**, and `Fixes ZHE-<n>`
+  when tracking Linear work. CI job `pull-request-standard` enforces this on every PR update.
 
 ## Tests
 

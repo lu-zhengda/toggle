@@ -9,8 +9,6 @@ let package = Package(
             name: "Toggle",
             path: "Sources/Toggle",
             linkerSettings: [
-                // CoreBrightness is resolved dynamically by the feature bridges so
-                // API drift can degrade gracefully instead of failing at launch.
                 .linkedFramework("IOBluetooth"),
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("CoreWLAN"),

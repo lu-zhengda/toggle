@@ -58,6 +58,7 @@ enum AudioOutput {
         return status == noErr ? device : 0
     }
 
+    /// Sets default output and, when supported, mirrors the same device for alert sounds.
     @discardableResult
     static func setDevice(_ id: AudioDeviceID) -> Bool {
         var addr = address(kAudioHardwarePropertyDefaultOutputDevice)
@@ -66,7 +67,6 @@ enum AudioOutput {
             AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
             UInt32(MemoryLayout<AudioDeviceID>.size), &device)
 
-        // Keep alert/system sounds on the same route when the device supports it.
         var systemAddr = address(kAudioHardwarePropertyDefaultSystemOutputDevice)
         _ = AudioObjectSetPropertyData(
             AudioObjectID(kAudioObjectSystemObject), &systemAddr, 0, nil,

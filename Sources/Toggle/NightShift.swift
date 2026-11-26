@@ -5,15 +5,12 @@ import Foundation
 /// the runtime class directly. Everything is best-effort and guarded.
 @objc private protocol CBBlueLightClientProtocol {
     func setEnabled(_ enabled: Bool) -> Bool
-    // getBlueLightStatus: fills a StatusData struct; we read it via a raw pointer.
+    /// Fills a StatusData struct; we read it via a raw pointer.
     func getBlueLightStatus(_ status: UnsafeMutableRawPointer) -> Bool
 }
 
 enum NightShift {
     nonisolated(unsafe) private static let client: CBBlueLightClientProtocol? = {
-        // Intentionally keep the dlopen reference for the process lifetime. The
-        // framework is not linked, so a missing future framework hides the tile
-        // instead of preventing Toggle from launching.
         guard dlopen(
             "/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness",
             RTLD_LAZY | RTLD_LOCAL
@@ -37,7 +34,6 @@ enum NightShift {
     static func setEnabled(_ enabled: Bool) -> Bool {
         queue.sync {
             guard let client else { return false }
-            // Do not set strength here: toggling should preserve the user's warmth.
             return client.setEnabled(enabled)
         }
     }
@@ -50,10 +46,10 @@ enum NightShift {
             guard let client else { return false }
             var buffer = [UInt8](repeating: 0, count: 64)
             let ok = buffer.withUnsafeMutableBytes { raw -> Bool in
-                client.getBlueLightStatus(raw.baseAddress!)
+                guard let base = raw.baseAddress else { return false }
+                return client.getBlueLightStatus(base)
             }
             guard ok else { return false }
-            // buffer[0] = active (currently dimming), buffer[1] = enabled toggle.
             return buffer[1] != 0
         }
     }

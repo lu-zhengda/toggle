@@ -1,0 +1,27 @@
+included:
+  - Sources
+  - Tests
+  - generate-icon.swift
+
+excluded:
+  - Package.swift
+
+only_rules:
+  - force_cast
+  - force_try
+  - force_unwrapping
+  - todo
+  - no_plain_line_comment
+  - no_plain_trailing_comment
+
+custom_rules:
+  no_plain_line_comment:
+    name: "Plain line // comments"
+    regex: '^\s*//(?!/|\s*MARK:|\s*swift-tools-version:)'
+    message: "Use `///`, `// MARK:`, or delete redundant comments instead of plain `//`."
+    severity: error
+  no_plain_trailing_comment:
+    name: "Plain trailing // comments"
+    regex: '[^:]//(?!/|\s*MARK:)'
+    message: "Use `///`, `// MARK:`, or delete redundant trailing `//` comments."
+    severity: error
