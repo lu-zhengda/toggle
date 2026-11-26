@@ -22,7 +22,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: SwiftLint
-        run: swiftlint --strict
+        run: |
+          if ! command -v swiftlint >/dev/null; then
+            brew install swiftlint
+          fi
+          swiftlint --strict
 
       - name: Test release planning
         run: |

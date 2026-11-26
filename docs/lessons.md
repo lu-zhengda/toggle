@@ -47,4 +47,5 @@ way to exercise a new release workflow before real changes depend on it.
 | Force casts (`as!`), `try!`, or `!` unwraps that hide real failures | `force_cast`, `force_try`, `force_unwrapping` | `.swiftlint.yml` → CI `build-test-package` (`swiftlint --strict`) |
 | `TODO` left in production sources | `todo` | `.swiftlint.yml` → CI `build-test-package` |
 | Plain `//` comments instead of `///` or `// MARK:` | `no_plain_line_comment`, `no_plain_trailing_comment` | `.swiftlint.yml` → CI `build-test-package` |
+| Assuming `swiftlint` is on `PATH` for every `macos-15` SKU | `brew install swiftlint` only when the binary is missing (Arm64 images omit it) | `.github/workflows/ci.yml` SwiftLint step |
 | PR title/body that skip Why / What / blast radius / verification or omit `Fixes ZHE-*` | Conventional title + 40-line body standard | `script/check-pull-request.sh` → CI `pull-request-standard` on `opened` / `synchronize` / `edited` (Dependabot exempt) |
