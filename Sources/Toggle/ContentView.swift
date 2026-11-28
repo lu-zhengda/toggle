@@ -1,604 +1,445 @@
 import SwiftUI
 
-/// The Bluetooth rune — there's no SF Symbol for it, so we stroke it ourselves.
-/// Polyline taken from the Feather "bluetooth" icon (24×24 viewBox).
-private struct BluetoothShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let pts: [CGPoint] = [
-            .init(x: 6.5, y: 6.5), .init(x: 17.5, y: 17.5), .init(x: 12, y: 23),
-            .init(x: 12, y: 1), .init(x: 17.5, y: 6.5), .init(x: 6.5, y: 17.5),
-        ]
-        let scale = min(rect.width, rect.height) / 24
-        let dx = rect.minX + (rect.width - 24 * scale) / 2
-        let dy = rect.minY + (rect.height - 24 * scale) / 2
-        var path = Path()
-        for (i, p) in pts.enumerated() {
-            let q = CGPoint(x: dx + p.x * scale, y: dy + p.y * scale)
-            if i == 0 { path.move(to: q) } else { path.addLine(to: q) }
-        }
-        return path
-    }
-}
-
-/// The AirDrop mark — no SF Symbol exists, so we draw it: concentric arcs (open
-/// at the bottom) plus a downward triangle, matching the native glyph.
-private struct AirDropArcs: Shape {
-    func path(in rect: CGRect) -> Path {
-        let s = min(rect.width, rect.height) / 24
-        let cx = rect.midX
-        let cy = rect.minY + 10 * s
-        var path = Path()
-        for r in [3.5, 6.5, 9.5] as [CGFloat] {
-            let radius = r * s
-            var degrees: CGFloat = 128
-            var first = true
-            while degrees <= 412 {
-                let angle: CGFloat = degrees * .pi / 180
-                let p = CGPoint(
-                    x: cx + radius * CoreGraphics.cos(angle),
-                    y: cy + radius * CoreGraphics.sin(angle)
-                )
-                if first { path.move(to: p); first = false } else { path.addLine(to: p) }
-                degrees += 6
-            }
-        }
-        return path
-    }
-}
-
-private struct AirDropTriangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        let s = min(rect.width, rect.height) / 24
-        let cx = rect.midX
-        let cy = rect.minY + 10 * s
-        var path = Path()
-        path.move(to: CGPoint(x: cx - 2.4 * s, y: cy + 2.8 * s))
-        path.addLine(to: CGPoint(x: cx + 2.4 * s, y: cy + 2.8 * s))
-        path.addLine(to: CGPoint(x: cx, y: cy + 8 * s))
-        path.closeSubpath()
-        return path
-    }
-}
-
-private enum IconGlyph {
-    case symbol(String)
-    case bluetooth
-    case airdrop
-}
-
-/// The visual treatment shared by icon buttons and the overflow menu. The
-/// entire glyph is decorative: the containing control supplies its own clear
-/// accessibility label, value, and hint.
-private struct IconTileVisual: View {
-    let glyph: IconGlyph
-    var body: some View {
-        glyphView
-            .frame(maxWidth: .infinity)
-            .frame(height: 40)
-            .contentShape(Rectangle())
-            .accessibilityHidden(true)
-    }
-
-    @ViewBuilder private var glyphView: some View {
-        switch glyph {
-        case .symbol(let name):
-            Image(systemName: name).font(.system(size: 18, weight: .medium))
-        case .bluetooth:
-            BluetoothShape()
-                .stroke(style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                .frame(width: 19, height: 19)
-        case .airdrop:
-            ZStack {
-                AirDropArcs().stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
-                AirDropTriangle()
-            }
-            .frame(width: 20, height: 20)
-        }
-    }
-}
-
-/// An icon-only control; the name lives in its tooltip.
-private struct IconButton: View {
-    let glyph: IconGlyph
-    let title: String
-    /// `nil` means this is a momentary action rather than an on/off control.
-    var isOn: Bool? = nil
-    var disabled: Bool = false
-    var activeColor: Color = .blue
-    var accessibilityLabel: String? = nil
-    var accessibilityValue: String? = nil
-    var accessibilityHint: String? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            IconTileVisual(glyph: glyph)
-                .overlay(alignment: .bottom) {
-                    if isOn == true {
-                        Circle().frame(width: 4, height: 4)
-                            .padding(.bottom, 1)
-                            .accessibilityHidden(true)
-                    }
-                }
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(isOn == true ? activeColor : .primary.opacity(0.75))
-        .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
-        .help(title)
-        .accessibilityLabel(Text(resolvedAccessibilityLabel))
-        .accessibilityValue(Text(resolvedAccessibilityValue))
-        .accessibilityHint(Text(resolvedAccessibilityHint))
-        .accessibilityAddTraits(isOn == true ? .isSelected : [])
-    }
-
-    private var resolvedAccessibilityLabel: String {
-        accessibilityLabel ?? title
-    }
-
-    private var resolvedAccessibilityValue: String {
-        accessibilityValue ?? isOn.map { $0 ? "On" : "Off" } ?? ""
-    }
-
-    private var resolvedAccessibilityHint: String {
-        if let accessibilityHint { return accessibilityHint }
-        if disabled { return "Unavailable on this Mac or display." }
-        if let isOn {
-            return isOn
-                ? "Turns \(resolvedAccessibilityLabel) off."
-                : "Turns \(resolvedAccessibilityLabel) on."
-        }
-        return "Performs \(resolvedAccessibilityLabel)."
-    }
-}
-
-/// AirPods: tap controls the selected pair, right-click changes the pair, and
-/// an ambiguous first tap opens a one-time chooser instead of guessing.
-private struct AirPodsTile: View {
+struct ContentView: View {
     @ObservedObject var controller: SystemController
-    @State private var isChoosingDevice = false
+    @ObservedObject var panel: TogglePanelModel
+    var isInteractive = true
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Namespace private var modeNamespace
+    @FocusState private var panelFocused: Bool
+    @AccessibilityFocusState private var a11yFocus: PanelTarget?
+    @State private var current: PanelTarget?
+    @State private var expandedID: ToggleID?
+    @State private var highlight = 0
 
     var body: some View {
-        IconButton(
-            glyph: .symbol("airpods"),
-            title: title,
-            isOn: controller.airPodsConnected,
-            accessibilityLabel: "AirPods",
-            accessibilityValue: accessibilityValue,
-            accessibilityHint: accessibilityHint,
-            action: primaryAction
-        )
-        .contextMenu {
-            ForEach(controller.airPodsDevices) { device in
-                Button(menuLabel(for: device)) {
-                    controller.selectAirPodsDevice(device.id)
-                }
-            }
-            Divider()
-            Button("Bluetooth Settings…") {
-                controller.openBluetoothSettings()
-            }
-        }
-        .popover(isPresented: $isChoosingDevice, arrowEdge: .leading) {
-            chooser
-        }
-    }
-
-    private var chooser: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Choose AirPods")
-                .font(.headline)
-            Text("Choose which pair this tile controls.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            ForEach(controller.airPodsDevices) { device in
-                Button {
-                    isChoosingDevice = false
-                    controller.selectAirPodsDevice(device.id)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "airpods")
-                            .frame(width: 18)
-                        Text(device.name)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            FittingScroll(maxHeight: 520) {
+                Group {
+                    if panel.viewMode == .grid {
+                        GridPanel(
+                            controller: controller,
+                            panel: panel,
+                            runs: runs,
+                            isInteractive: isInteractive,
+                            blocked: controlsBlocked,
+                            current: current,
+                            a11yFocus: $a11yFocus
+                        )
+                    } else {
+                        ListPanel(
+                            controller: controller,
+                            panel: panel,
+                            runs: runs,
+                            isInteractive: isInteractive,
+                            blocked: controlsBlocked,
+                            current: current,
+                            expandedID: expandedID,
+                            highlight: highlight,
+                            a11yFocus: $a11yFocus,
+                            onToggleExpand: toggleExpanded,
+                            onPick: pick
+                        )
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(.vertical, 5)
-                .accessibilityHint("Selects and connects \(device.name).")
             }
-
-            Divider()
-            Button("Bluetooth Settings…") {
-                isChoosingDevice = false
-                controller.openBluetoothSettings()
+            QuickActionStrip(
+                controller: controller,
+                isInteractive: isInteractive,
+                blocked: controlsBlocked,
+                current: current,
+                a11yFocus: $a11yFocus
+            )
+            if showsStatus {
+                status
             }
         }
         .padding(12)
-        .frame(width: 220)
-    }
-
-    private func primaryAction() {
-        if controller.airPodsNeedsSelection {
-            isChoosingDevice = true
-        } else {
-            controller.toggleAirPods()
+        .frame(width: panel.viewMode == .list ? 320 : 340)
+        .adaptiveGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .focusable(isInteractive)
+        .focused($panelFocused)
+        .focusEffectDisabled()
+        .onKeyPress(phases: .down) { press in
+            handle(press)
         }
-    }
-
-    private var title: String {
-        guard let device = controller.selectedAirPods else { return "Choose AirPods" }
-        return "\(device.isConnected ? "Disconnect" : "Connect") \(device.name)"
-    }
-
-    private var accessibilityValue: String {
-        guard let device = controller.selectedAirPods else {
-            return "No device selected"
+        .onAppear {
+            guard isInteractive else { return }
+            controller.refresh()
+            panelFocused = true
         }
-        return "\(device.name), \(device.isConnected ? "connected" : "disconnected")"
-    }
-
-    private var accessibilityHint: String {
-        guard let device = controller.selectedAirPods else {
-            return "Opens a chooser. Open the context menu to select a paired device."
+        .onChange(of: panel.viewMode) { _, _ in
+            expandedID = nil
         }
-        let action = device.isConnected ? "Disconnects" : "Connects"
-        return "\(action) \(device.name). Open the context menu to choose another pair."
-    }
-
-    private func menuLabel(for device: AirPodsDevice) -> String {
-        let selected = device.id == controller.airPodsSelectedID
-        let prefix = selected ? "✓ " : ""
-        let suffix = device.isConnected ? " (Connected)" : ""
-        let availableCount = max(1, 30 - prefix.count - suffix.count)
-        let name = device.name.count > availableCount
-            ? String(device.name.prefix(max(1, availableCount - 1))) + "…"
-            : device.name
-        return prefix + name + suffix
-    }
-}
-
-/// AirDrop visibility: tap cycles Off/Contacts/Everyone, right-click picks.
-private struct AirDropTile: View {
-    @ObservedObject var controller: SystemController
-
-    var body: some View {
-        IconButton(glyph: .airdrop,
-                   title: "AirDrop: \(controller.airDropMode)",
-                   isOn: controller.airDropMode != "Off",
-                   accessibilityLabel: "AirDrop",
-                   accessibilityValue: controller.airDropMode,
-                   accessibilityHint: "Cycles AirDrop visibility. Open the context menu to choose a mode.",
-                   action: controller.cycleAirDrop)
-            .contextMenu {
-                ForEach(SystemController.airDropModes, id: \.self) { mode in
-                    Button { controller.setAirDrop(mode) } label: {
-                        Text(mode == controller.airDropMode ? "✓ \(mode)" : mode)
-                    }
-                }
-            }
-    }
-}
-
-struct ContentView: View {
-    @ObservedObject var controller: SystemController
-    @Environment(\.openSettings) private var openSettings
-
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 4)
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-            Divider()
-            VStack(spacing: 8) {
-                LazyVGrid(columns: columns) { connectivity }
-                Divider()
-                LazyVGrid(columns: columns) { appearance }
-                Divider()
-                LazyVGrid(columns: columns) { focus }
-                Divider()
-                LazyVGrid(columns: columns) { finder }
-            }
-            .disabled(!controller.hasLoadedState || controller.isRefreshing || !controller.busyActions.isEmpty)
-            .opacity(controller.hasLoadedState ? 1 : 0.55)
-            .accessibilityHidden(!controller.hasLoadedState)
-
-            LazyVGrid(columns: columns) { actions }
-                .foregroundStyle(.secondary)
-                .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
-                .disabled(controller.isRefreshing || !controller.busyActions.isEmpty)
-            footer
+        .onChange(of: a11yFocus) { _, newValue in
+            if let newValue { current = newValue }
         }
-        .padding(14)
-        .frame(width: 284)
-        .onAppear { controller.refresh() }
     }
 
     private var header: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 6) {
             Text("Toggle")
-                .font(.system(size: 14, weight: .semibold))
-            Spacer()
-
-            Button(action: controller.refresh) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-                    .accessibilityHidden(true)
+                .font(.callout.weight(.semibold))
+            Spacer(minLength: 0)
+            viewSwitch
+            GlassCircleButton(
+                systemName: "arrow.clockwise",
+                help: "Refresh",
+                disabled: !isInteractive || controller.isRefreshing
+            ) {
+                controller.refresh()
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .disabled(controller.isRefreshing || !controller.busyActions.isEmpty)
-            .opacity(controller.isRefreshing || !controller.busyActions.isEmpty ? 0.45 : 1)
-            .help(controller.isRefreshing ? "Refreshing…" : "Refresh")
-            .accessibilityLabel("Refresh system state")
-            .accessibilityHint("Updates all toggle states.")
-
-            Button {
-                openSettings()
-                NSApplication.shared.activate(ignoringOtherApps: true)
-            } label: {
+            SettingsLink {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-                    .accessibilityHidden(true)
+                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .modifier(GlassCircleButtonStyle())
             .help("Settings")
             .accessibilityLabel("Settings")
-            .accessibilityHint("Opens Toggle settings.")
+            .disabled(!isInteractive)
         }
     }
 
-    @ViewBuilder private var appearance: some View {
-        IconButton(glyph: .symbol("moon.fill"), title: "Dark Mode",
-                   isOn: controller.darkMode, action: controller.toggleDarkMode)
-
-        if controller.nightShiftAvailable {
-            IconButton(glyph: .symbol("sun.max.fill"), title: "Night Shift",
-                       isOn: controller.nightShift, action: controller.toggleNightShift)
+    private var viewSwitch: some View {
+        HStack(spacing: 0) {
+            modeButton(.grid, symbol: "square.grid.2x2", key: "1")
+            modeButton(.list, symbol: "list.bullet", key: "2")
         }
-
-        IconButton(glyph: .symbol("sun.haze.fill"), title: "True Tone",
-                   isOn: controller.trueTone,
-                   disabled: !controller.trueToneAvailable,
-                   accessibilityLabel: "True Tone",
-                   action: controller.toggleTrueTone)
-
-        IconButton(glyph: .symbol(controller.muted ? "speaker.slash.fill" : "speaker.wave.2.fill"),
-                   title: controller.muted ? "Unmute" : "Mute",
-                   isOn: controller.muted,
-                   accessibilityLabel: "Output Mute",
-                   accessibilityValue: controller.muted ? "Muted" : "Not muted",
-                   accessibilityHint: controller.muted ? "Unmutes audio output." : "Mutes audio output.",
-                   action: controller.toggleMute)
-
+        .padding(2)
+        .adaptiveGlass(in: Capsule())
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: panel.viewMode)
     }
 
-    @ViewBuilder private var focus: some View {
-        IconButton(glyph: .symbol("cup.and.saucer.fill"), title: keepAwakeTitle,
-                   isOn: controller.keepAwake,
-                   accessibilityLabel: "Keep Awake",
-                   accessibilityValue: keepAwakeAccessibilityValue,
-                   accessibilityHint: controller.keepAwake
-                       ? "Turns Keep Awake off. Open the context menu to choose a timer."
-                       : "Turns Keep Awake on using the default duration. Open the context menu to choose a timer.",
-                   action: controller.toggleKeepAwake)
-            .contextMenu {
-                Button("Keep awake for 15 minutes") { controller.setKeepAwake(true, minutes: 15) }
-                Button("Keep awake for 30 minutes") { controller.setKeepAwake(true, minutes: 30) }
-                Button("Keep awake for 1 hour") { controller.setKeepAwake(true, minutes: 60) }
-                Button("Keep awake for 2 hours") { controller.setKeepAwake(true, minutes: 120) }
-                Divider()
-                Button("Keep awake indefinitely") { controller.setKeepAwake(true) }
-                Button("Turn off") { controller.setKeepAwake(false) }
-            }
-
-        if controller.lowPowerModeAvailable {
-            IconButton(glyph: .symbol("leaf.fill"), title: "Low Power Mode",
-                       isOn: controller.lowPowerMode,
-                       accessibilityHint: controller.lowPowerMode
-                           ? "Turns Low Power Mode off. Open the context menu to use Battery Settings instead."
-                           : "Turns Low Power Mode on. Open the context menu to use Battery Settings instead.",
-                       action: controller.toggleLowPowerMode)
-                .contextMenu {
-                    Button("Open Battery Settings") { controller.openBatterySettings() }
+    private func modeButton(_ mode: PanelViewMode, symbol: String, key: KeyEquivalent) -> some View {
+        let title = mode == .grid ? "Grid" : "List"
+        return Button {
+            panel.viewMode = mode
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 28, height: 22)
+                .background {
+                    if panel.viewMode == mode {
+                        Capsule()
+                            .fill(Color.accentColor.opacity(reduceTransparency ? 0.35 : 0.22))
+                            .matchedGeometryEffect(id: "panel-mode", in: modeNamespace)
+                    }
                 }
+                .contentShape(Capsule())
         }
-
-        IconButton(glyph: .symbol("bell.slash.fill"), title: "Toggle Do Not Disturb",
-                   accessibilityLabel: "Do Not Disturb",
-                   accessibilityHint: "Toggles Do Not Disturb through Control Center. Requires Accessibility permission.",
-                   action: controller.toggleDoNotDisturb)
-
-        IconButton(glyph: .symbol("rectangle.stack.fill"), title: "Stage Manager",
-                   isOn: controller.stageManager, action: controller.toggleStageManager)
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(panel.viewMode == mode ? .isSelected : [])
+        .modifier(CommandShortcut(enabled: isInteractive, key: key))
     }
 
-    @ViewBuilder private var connectivity: some View {
-        IconButton(glyph: .symbol("wifi"), title: "Wi-Fi",
-                   isOn: controller.wifi,
-                   disabled: !controller.wifiAvailable,
-                   accessibilityLabel: "Wi-Fi",
-                   action: controller.toggleWifi)
-
-        if controller.bluetoothAvailable {
-            IconButton(glyph: .bluetooth, title: "Bluetooth",
-                       isOn: controller.bluetooth, action: controller.toggleBluetooth)
-        }
-        AirDropTile(controller: controller)
-        if controller.airPodsAvailable {
-            AirPodsTile(controller: controller)
-        }
-
-    }
-
-    @ViewBuilder private var finder: some View {
-        IconButton(glyph: .symbol("square.grid.2x2.fill"),
-                   title: controller.hideDesktopIcons ? "Show Desktop Icons" : "Hide Desktop Icons",
-                   isOn: controller.hideDesktopIcons,
-                   accessibilityLabel: "Desktop Icons",
-                   accessibilityValue: controller.hideDesktopIcons ? "Hidden" : "Visible",
-                   accessibilityHint: controller.hideDesktopIcons
-                       ? "Shows desktop icons."
-                       : "Hides desktop icons.",
-                   action: controller.toggleHideDesktopIcons)
-        IconButton(glyph: .symbol("eye.fill"), title: "Show Hidden Files",
-                   isOn: controller.showHiddenFiles,
-                   accessibilityLabel: "Hidden Files",
-                   accessibilityValue: controller.showHiddenFiles ? "Shown" : "Hidden",
-                   action: controller.toggleHiddenFiles)
-        IconButton(glyph: .symbol("doc.badge.ellipsis"), title: "Show File Extensions",
-                   isOn: controller.showFileExtensions,
-                   accessibilityLabel: "File Extensions",
-                   accessibilityValue: controller.showFileExtensions ? "Shown" : "Hidden",
-                   action: controller.toggleFileExtensions)
-        IconButton(glyph: .symbol("dock.arrow.down.rectangle"), title: "Dock Auto-hide",
-                   isOn: controller.dockAutohide, action: controller.toggleDockAutohide)
-    }
-
-    @ViewBuilder private var actions: some View {
-        IconButton(glyph: .symbol("display"), title: "Screen Saver", action: controller.startScreenSaver)
-        IconButton(glyph: .symbol("lock.fill"), title: "Lock Screen", action: controller.lockScreen)
-        IconButton(glyph: .symbol("moon.zzz.fill"), title: "Sleep Display", action: controller.sleepDisplay)
-        MoreActionsMenu(controller: controller)
-    }
-
-    private var footer: some View {
+    private var status: some View {
         HStack(spacing: 6) {
-            if let feedback = controller.feedback, feedback.isError {
-                feedbackContent(feedback)
-            } else if controller.isRefreshing {
-                ProgressView()
-                    .controlSize(.small)
+            if controller.isRefreshing {
+                ProgressView().controlSize(.small)
                 Text("Refreshing…")
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Refreshing system state")
             } else if !controller.busyActions.isEmpty {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Applying change…")
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Applying system change")
+                ProgressView().controlSize(.small)
+                Text("Applying…")
             } else if let feedback = controller.feedback {
-                feedbackContent(feedback)
-            } else {
-                Text("Ready")
-                    .hidden()
+                Image(systemName: feedback.symbol)
+                    .accessibilityHidden(true)
+                Text(feedback.message)
+                    .lineLimit(1)
+                    .foregroundStyle(feedback.isError ? Color.red : Color.secondary)
             }
         }
         .font(.caption)
-        .foregroundStyle(
-            !controller.isRefreshing && controller.feedback?.isError == true
-                ? Color.red
-                : Color.secondary
-        )
-        .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 16, alignment: .leading)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .help(controller.feedback?.message ?? "Status")
     }
 
-    @ViewBuilder
-    private func feedbackContent(_ feedback: ActionFeedback) -> some View {
-        Image(systemName: feedback.symbol)
-            .accessibilityHidden(true)
-        Text(feedback.message)
-            .lineLimit(1)
-            .truncationMode(.tail)
-        Spacer(minLength: 0)
+    private var showsStatus: Bool {
+        controller.isRefreshing || !controller.busyActions.isEmpty || controller.feedback != nil
     }
 
-    private var keepAwakeTitle: String {
-        guard controller.keepAwake else { return "Keep Awake" }
-        if let until = controller.keepAwakeUntil {
-            let mins = max(0, Int(until.timeIntervalSinceNow / 60) + 1)
-            return "Keep Awake (\(mins) min left)"
+    private var controlsBlocked: Bool {
+        !controller.hasLoadedState || controller.isRefreshing || !controller.busyActions.isEmpty
+    }
+
+    private var displayedIDs: [ToggleID] {
+        panel.state.displayed(using: controller.toggleAvailability)
+    }
+
+    private var runs: [ToggleRun] {
+        panel.state.sectionRuns(in: displayedIDs)
+    }
+
+    private var focusMap: PanelFocusMap {
+        if panel.viewMode == .grid {
+            return .grid(runs: runs, collapsed: panel.state.collapsed)
         }
-        return "Keep Awake (on, \(controller.keepAwakeMode.commandEquivalent))"
+        return .list(ids: displayedIDs)
     }
 
-    private var keepAwakeAccessibilityValue: String {
-        guard controller.keepAwake else { return "Off" }
-        if let until = controller.keepAwakeUntil {
-            let mins = max(0, Int(until.timeIntervalSinceNow / 60) + 1)
-            return "On, \(mins) minutes remaining"
+    private var expandedOptions: [DropdownOption] {
+        guard let expandedID else { return [] }
+        return ToggleActions.options(
+            for: expandedID,
+            controller: controller,
+            menuMinutes: panel.state.keepAwakeMenu.menuMinutes
+        )
+    }
+
+    private func handle(_ press: KeyPress) -> KeyPress.Result {
+        guard isInteractive else { return .ignored }
+        switch press.key {
+        case .upArrow:
+            if expandedID != nil {
+                highlight = MenuKeyboard.highlight(current: highlight, count: expandedOptions.count, delta: -1)
+            } else {
+                move(.up)
+            }
+            return .handled
+        case .downArrow:
+            if expandedID != nil {
+                highlight = MenuKeyboard.highlight(current: highlight, count: expandedOptions.count, delta: 1)
+            } else {
+                move(.down)
+            }
+            return .handled
+        case .leftArrow:
+            if expandedID != nil {
+                expandedID = nil
+                return .handled
+            }
+            guard panel.viewMode == .grid else { return .ignored }
+            move(.left)
+            return .handled
+        case .rightArrow:
+            if panel.viewMode == .list, expandedID == nil, let id = focusedTile, id.hasDropdown {
+                open(id)
+                return .handled
+            }
+            guard panel.viewMode == .grid else { return .ignored }
+            move(.right)
+            return .handled
+        case .escape:
+            guard expandedID != nil else { return .ignored }
+            expandedID = nil
+            return .handled
+        case .return:
+            if expandedID != nil {
+                confirmHighlight()
+                return .handled
+            }
+            if panel.viewMode == .list, let id = focusedTile, id.hasDropdown {
+                open(id)
+                return .handled
+            }
+            activateFocused()
+            return .handled
+        case .space:
+            guard expandedID == nil else { return .ignored }
+            activateFocused()
+            return .handled
+        default:
+            return .ignored
         }
-        return "On indefinitely"
+    }
+
+    private var focusedTile: ToggleID? {
+        if case .tile(let id) = current { return id }
+        return nil
+    }
+
+    private func move(_ direction: FocusDirection) {
+        current = focusMap.moved(current, direction: direction)
+        a11yFocus = current
+    }
+
+    private func open(_ id: ToggleID) {
+        let options = ToggleActions.options(
+            for: id,
+            controller: controller,
+            menuMinutes: panel.state.keepAwakeMenu.menuMinutes
+        )
+        guard !options.isEmpty else { return }
+        expandedID = id
+        current = .tile(id)
+        highlight = options.firstIndex { $0.isSelected } ?? 0
+        a11yFocus = .tile(id)
+    }
+
+    private func toggleExpanded(_ id: ToggleID) {
+        if expandedID == id {
+            expandedID = nil
+        } else {
+            open(id)
+        }
+    }
+
+    private func confirmHighlight() {
+        guard let expandedID, expandedOptions.indices.contains(highlight) else { return }
+        pick(expandedID, expandedOptions[highlight])
+    }
+
+    private func pick(_ id: ToggleID, _ option: DropdownOption) {
+        ToggleActions.apply(option, for: id, controller: controller)
+        expandedID = nil
+        current = .tile(id)
+        a11yFocus = .tile(id)
+    }
+
+    private func activateFocused() {
+        switch current {
+        case .section(let section):
+            panel.toggleCollapsed(section)
+        case .tile(let id):
+            guard controller.toggleAvailability.isEnabled(id), !controlsBlocked else { return }
+            ToggleActions.trigger(id, controller: controller)
+        case .action(let action):
+            guard !controlsBlocked else { return }
+            ToggleActions.perform(action, controller: controller)
+        case nil:
+            current = focusMap.moved(nil, direction: .down)
+            a11yFocus = current
+        }
     }
 }
 
-/// Less-frequent or disruptive actions live behind a labeled menu while the
-/// grid itself remains compact and icon-only.
-private struct MoreActionsMenu: View {
-    @ObservedObject var controller: SystemController
+private struct CommandShortcut: ViewModifier {
+    var enabled: Bool
+    var key: KeyEquivalent
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.keyboardShortcut(key, modifiers: .command)
+        } else {
+            content
+        }
+    }
+}
+
+private struct FittingScroll<Content: View>: View {
+    var maxHeight: CGFloat
+    @ViewBuilder var content: () -> Content
+    @State private var contentHeight: CGFloat = 1
 
     var body: some View {
-        Menu {
-            Menu {
-                Button("Next Audio Output", action: controller.cycleAudioOutput)
-                Divider()
-                ForEach(controller.audioDevices) { device in
-                    Button {
-                        controller.selectAudioDevice(device.id)
-                    } label: {
-                        if device.id == controller.audioOutputID {
-                            Label(device.name, systemImage: "checkmark")
-                        } else {
-                            Text(device.name)
-                        }
+        ScrollView {
+            content()
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
                     }
                 }
-            } label: {
-                Label("Audio Output: \(controller.audioOutputName)", systemImage: "hifispeaker.fill")
-            }
-            Divider()
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(ContentHeightKey.self) { contentHeight = max($0, 1) }
+        .frame(height: min(contentHeight, maxHeight))
+    }
+}
 
+private struct ContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 1
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+struct QuickActionStrip: View {
+    @ObservedObject var controller: SystemController
+    var isInteractive: Bool
+    var blocked: Bool
+    var current: PanelTarget?
+    var a11yFocus: AccessibilityFocusState<PanelTarget?>.Binding
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(QuickAction.allCases, id: \.self) { action in
+                if action == .more {
+                    moreMenu
+                } else {
+                    actionButton(action)
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .adaptiveGlass(in: Capsule())
+    }
+
+    private func actionButton(_ action: QuickAction) -> some View {
+        Button {
+            guard isInteractive, !blocked else { return }
+            ToggleActions.perform(action, controller: controller)
+        } label: {
+            actionLabel(action)
+        }
+        .buttonStyle(.plain)
+        .disabled(isInteractive && blocked)
+        .help(action.title)
+        .accessibilityLabel(action.title)
+        .accessibilityFocused(a11yFocus, equals: .action(action))
+        .focusRing(current == .action(action))
+    }
+
+    private func actionLabel(_ action: QuickAction) -> some View {
+        VStack(spacing: 1) {
+            Image(systemName: action.systemImage)
+                .font(.system(size: 12, weight: .semibold))
+            Text(action.title)
+                .font(.caption2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity, minHeight: 28)
+        .contentShape(Rectangle())
+    }
+
+    private var moreMenu: some View {
+        Menu {
             Button {
                 controller.sleepNow()
             } label: {
                 Label("Sleep Now", systemImage: "bed.double.fill")
             }
-
             Button {
                 controller.clearClipboard()
             } label: {
                 Label("Clear Clipboard", systemImage: "clipboard.fill")
             }
-
             Button {
                 controller.ejectAllDisks()
             } label: {
                 Label("Eject All Disks", systemImage: "eject.fill")
             }
-
             Button(role: .destructive) {
                 controller.emptyTrash()
             } label: {
                 Label("Empty Trash", systemImage: "trash.fill")
             }
-
             Divider()
-
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Label("Quit Toggle", systemImage: "power")
             }
         } label: {
-            IconTileVisual(glyph: .symbol("ellipsis"))
+            actionLabel(.more)
         }
         .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
-        .buttonStyle(.borderless)
-        .frame(height: 40)
-        .help("More Actions")
-        .accessibilityLabel("More Actions")
-        .accessibilityHint("Opens audio output, sleep, clipboard, disk, trash, and quit actions.")
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .disabled(isInteractive && blocked)
+        .help("More")
+        .accessibilityLabel("More")
+        .accessibilityHint("Opens sleep, clipboard, disk, trash, and quit")
+        .accessibilityFocused(a11yFocus, equals: .action(.more))
+        .focusRing(current == .action(.more))
     }
 }

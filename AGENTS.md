@@ -100,7 +100,9 @@ Optional full packaging check (macOS): `./build-app.sh` after tests pass.
   unsupported systems can degrade gracefully.
 - `Sources/Toggle/`
   - `ToggleApp.swift` — `@main`, the `MenuBarExtra` scene.
-  - `ContentView.swift` — the minimal icon-grid UI + `BluetoothShape`.
+  - `ContentView.swift` — menu bar panel: header, grid or list, quick actions.
+  - `SettingsView.swift` — settings sidebar.
+  - `ToggleCatalog.swift`, `TogglePanelModel.swift` — view mode, order, and visibility.
   - `SystemController.swift` — `@MainActor ObservableObject` holding all switch
     state (`@Published`) and performing every action.
   - `Shell.swift` — helpers for running processes and AppleScript.
@@ -121,9 +123,17 @@ Optional full packaging check (macOS): `./build-app.sh` after tests pass.
   state. The read helpers are marked `nonisolated` so they can run off-main. (This
   async work is what keeps the panel responsive — don't move reads or commands
   back onto the main actor.)
-- UI is data-light: `ContentView` builds `IconButton`s from controller state. No
-  text labels — every button has a `.help()` tooltip; keep that invariant when
-  adding tiles.
+- UI is data-light: `ContentView` builds the grid or list from controller state.
+  Tiles and rows use short titles. Icon-only controls keep a `.help()` tooltip
+  and an accessibility label.
+
+## Design rules
+
+- No helper text, taglines, or explanatory captions. If a control needs a
+  sentence, redesign it: an icon, a simple interaction, or a short title.
+- Subtitles are live values only, such as a network name, a selected mode, or
+  time remaining.
+- Tooltips and accessibility labels stay. Icon-only controls still need them.
 
 ## Gotchas (read before editing)
 

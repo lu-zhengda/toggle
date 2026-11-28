@@ -21,6 +21,9 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Select Xcode 26
+        run: ./script/select-xcode-26.sh
+
       - name: SwiftLint
         run: |
           if ! command -v swiftlint >/dev/null; then

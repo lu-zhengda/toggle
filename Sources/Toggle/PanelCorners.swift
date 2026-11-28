@@ -13,7 +13,7 @@ struct PanelCorners: NSViewRepresentable {
             window.isOpaque = false
             window.backgroundColor = .clear
             frame.wantsLayer = true
-            frame.layer?.cornerRadius = 20
+            frame.layer?.cornerRadius = 26
             frame.layer?.cornerCurve = .continuous
             frame.layer?.masksToBounds = true
             window.invalidateShadow()
