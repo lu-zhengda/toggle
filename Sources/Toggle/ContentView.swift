@@ -344,7 +344,7 @@ private struct FittingScroll<Content: View>: View {
 }
 
 private struct ContentHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 1
+    static let defaultValue: CGFloat = 1
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
     }

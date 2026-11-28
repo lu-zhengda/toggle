@@ -1,7 +1,7 @@
 import SwiftUI
 
 extension View {
-    func adaptiveGlass<S: Shape>(
+    func adaptiveGlass<S: InsettableShape>(
         tint: Color? = nil,
         interactive: Bool = false,
         in shape: S
@@ -10,7 +10,7 @@ extension View {
     }
 }
 
-struct AdaptiveGlassModifier<S: Shape>: ViewModifier {
+struct AdaptiveGlassModifier<S: InsettableShape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
