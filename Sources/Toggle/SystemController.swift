@@ -61,10 +61,12 @@ final class SystemController: ObservableObject {
     @Published var showHiddenFiles = false
     @Published var keepAwake = false
     @Published var keepAwakeUntil: Date?
+    @Published private(set) var keepAwakeChosenMinutes: Int?
     @Published var muted = false
     @Published var nightShift = false
     @Published var trueTone = false
     @Published var wifi = false
+    @Published var wifiNetworkName: String?
     @Published var bluetooth = false
     @Published var airPodsConnected = false
     @Published var showFileExtensions = false
@@ -185,6 +187,7 @@ final class SystemController: ObservableObject {
         let trueToneAvailable: Bool
         let wifi: Bool
         let wifiAvailable: Bool
+        let wifiNetworkName: String?
         let bluetooth: Bool
         let airPodsStatus: AirPodsStatus
         let showFileExtensions: Bool
@@ -224,6 +227,7 @@ final class SystemController: ObservableObject {
             return (
                 wifi: wifi.isOn,
                 wifiAvailable: wifi.available,
+                wifiNetworkName: wifi.networkName,
                 bluetooth: BluetoothPower.isOn(),
                 airPodsStatus: airPods,
                 airDrop: readAirDrop()
@@ -259,6 +263,7 @@ final class SystemController: ObservableObject {
             trueToneAvailable: display.trueToneAvailable,
             wifi: connectivity.wifi,
             wifiAvailable: connectivity.wifiAvailable,
+            wifiNetworkName: connectivity.wifiNetworkName,
             bluetooth: connectivity.bluetooth,
             airPodsStatus: connectivity.airPodsStatus,
             showFileExtensions: appearance.extensions,
@@ -280,7 +285,10 @@ final class SystemController: ObservableObject {
         if !busyActions.contains("mute") { muted = snapshot.muted }
         if !busyActions.contains("nightShift") { nightShift = snapshot.nightShift }
         if !busyActions.contains("trueTone") { trueTone = snapshot.trueTone }
-        if !busyActions.contains("wifi") { wifi = snapshot.wifi }
+        if !busyActions.contains("wifi") {
+            wifi = snapshot.wifi
+            wifiNetworkName = snapshot.wifi ? snapshot.wifiNetworkName : nil
+        }
         if !busyActions.contains("bluetooth") { bluetooth = snapshot.bluetooth }
         if !busyActions.contains("airPods") { applyAirPodsStatus(snapshot.airPodsStatus) }
         if !busyActions.contains("fileExtensions") { showFileExtensions = snapshot.showFileExtensions }
@@ -307,9 +315,9 @@ final class SystemController: ObservableObject {
         launchAtLogin = status == .enabled
         switch status {
         case .requiresApproval:
-            launchAtLoginStatus = "Approval required in System Settings."
+            launchAtLoginStatus = "Approval required"
         case .notFound:
-            launchAtLoginStatus = "Move Toggle to Applications before enabling this option."
+            launchAtLoginStatus = "Unavailable"
         default:
             launchAtLoginStatus = nil
         }
@@ -327,14 +335,14 @@ final class SystemController: ObservableObject {
             refreshSettings()
         } catch {
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            launchAtLoginStatus = error.localizedDescription
+            launchAtLoginStatus = "Couldn't update"
         }
     }
 
     func checkForUpdates() {
         guard !isCheckingForUpdates else { return }
         isCheckingForUpdates = true
-        updateStatus = "Checking for updates…"
+        updateStatus = "Checking…"
         latestReleaseURL = nil
 
         Task {
@@ -343,13 +351,13 @@ final class SystemController: ObservableObject {
                 let current = Self.appVersion
                 latestReleaseURL = release.htmlURL
                 if SystemParsing.isVersion(release.version, newerThan: current) {
-                    updateStatus = "Update available: \(release.version) (current: \(current))"
+                    updateStatus = "Update available: \(release.version)"
                 } else {
-                    updateStatus = "Toggle is up to date (\(current))."
+                    updateStatus = "Up to date (\(current))"
                 }
             } catch {
                 latestReleaseURL = GitHubLinks.releases
-                updateStatus = "Couldn’t check for updates. Open GitHub Releases instead."
+                updateStatus = "Couldn't check"
             }
             isCheckingForUpdates = false
         }
@@ -574,7 +582,7 @@ final class SystemController: ObservableObject {
     /// Toggle indefinitely, or pass `minutes` to auto-release after a timer.
     func setKeepAwake(_ on: Bool, minutes: Int? = nil) {
         let until = minutes.flatMap { $0 > 0 ? Date().addingTimeInterval(Double($0) * 60) : nil }
-        configureKeepAwake(on, until: until)
+        configureKeepAwake(on, until: until, chosenMinutes: on ? minutes : nil)
         let succeeded = keepAwake == on
         let onMessage = minutes.flatMap { $0 > 0 ? "Keep Awake is on for \($0) minutes." : nil }
             ?? "Keep Awake is on."
@@ -587,13 +595,21 @@ final class SystemController: ObservableObject {
         )
     }
 
-    private func configureKeepAwake(_ on: Bool, until: Date?) {
+    private func configureKeepAwake(
+        _ on: Bool,
+        until: Date?,
+        chosenMinutes: Int? = nil,
+        preserveChoice: Bool = false
+    ) {
         keepAwakeTimer?.cancel()
         keepAwakeTimer = nil
         for id in assertionIDs { IOPMAssertionRelease(id) }
         assertionIDs = []
         keepAwakeUntil = nil
         keepAwake = false
+        if !preserveChoice {
+            keepAwakeChosenMinutes = nil
+        }
         guard on else { return }
 
         for type in keepAwakeMode.assertionTypes {
@@ -608,6 +624,9 @@ final class SystemController: ObservableObject {
         }
         guard !assertionIDs.isEmpty else { return }
         keepAwake = true
+        if !preserveChoice {
+            keepAwakeChosenMinutes = chosenMinutes
+        }
 
         if let until {
             keepAwakeUntil = until
@@ -622,7 +641,7 @@ final class SystemController: ObservableObject {
 
     private func reconfigureKeepAwake() {
         let until = keepAwakeUntil
-        configureKeepAwake(true, until: until)
+        configureKeepAwake(true, until: until, preserveChoice: true)
         showFeedback(
             keepAwake
                 ? "Keep Awake now uses \(keepAwakeMode.title.lowercased())."
@@ -691,18 +710,27 @@ final class SystemController: ObservableObject {
 
     func toggleWifi() {
         guard wifiAvailable else {
-            showFeedback("No Wi-Fi interface is available.", symbol: "wifi.exclamationmark", isError: true)
+            showFeedback("Wi-Fi unavailable.", symbol: "wifi.exclamationmark", isError: true)
             return
         }
         let target = !wifi
-        performBooleanAction(
-            key: "wifi",
-            title: "Wi-Fi",
-            target: target,
-            apply: { [weak self] in self?.wifi = $0 },
-            operation: { await Self.offMain { WiFiPower.set(target) } },
-            read: { WiFiPower.state().isOn }
-        )
+        guard beginAction("wifi") else { return }
+        wifi = target
+        if !target { wifiNetworkName = nil }
+        Task { [weak self] in
+            let operationSucceeded = await Self.offMain { WiFiPower.set(target) }
+            let state = await Self.offMain { WiFiPower.state() }
+            guard let self else { return }
+            self.wifi = state.isOn
+            self.wifiAvailable = state.available
+            self.wifiNetworkName = state.isOn ? state.networkName : nil
+            self.finishAction(
+                "wifi",
+                success: operationSucceeded && state.isOn == target,
+                successMessage: target ? "Wi-Fi on." : "Wi-Fi off.",
+                failureMessage: "Couldn’t change Wi-Fi."
+            )
+        }
     }
 
     // MARK: - Bluetooth
@@ -776,11 +804,7 @@ final class SystemController: ObservableObject {
 
     func toggleAirPods() {
         guard let device = selectedAirPods else {
-            showFeedback(
-                "Choose which AirPods this tile controls.",
-                symbol: "airpods",
-                isError: true
-            )
+            showFeedback("Select AirPods.", symbol: "airpods", isError: true)
             return
         }
         guard beginAction("airPods") else { return }
@@ -842,11 +866,7 @@ final class SystemController: ObservableObject {
     func toggleDoNotDisturb() {
         guard AXIsProcessTrusted() else {
             accessibilityGranted = false
-            showFeedback(
-                "Accessibility access is required for Do Not Disturb.",
-                symbol: "hand.raised.fill",
-                isError: true
-            )
+            showFeedback("Accessibility needed.", symbol: "hand.raised.fill", isError: true)
             openAccessibilitySettings()
             return
         }

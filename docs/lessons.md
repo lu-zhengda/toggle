@@ -4,6 +4,13 @@ Each entry: **date** — what happened — what changed (or what we learned).
 
 ---
 
+## 2026-11-28
+
+**No explanatory UI copy.** Helper lines under controls were removed from the
+Liquid Glass panel and Settings. Subtitles are live values only. A control that
+needs a sentence is redesigned instead. `SettingsCopyTests` scans `Sources/Toggle`
+for the dropped phrases.
+
 ## 2026-11-24
 
 **CI hardening and agent docs.** Concurrency on the CI workflow cancels superseded
