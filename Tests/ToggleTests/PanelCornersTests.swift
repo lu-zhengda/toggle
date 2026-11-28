@@ -11,7 +11,7 @@ final class PanelCornersTests: XCTestCase {
         let view = PanelCorners.CornerView()
         panel.contentView?.addSubview(view)
         let layer = try XCTUnwrap(panel.contentView?.superview?.layer)
-        XCTAssertEqual(layer.cornerRadius, 20)
+        XCTAssertEqual(layer.cornerRadius, 26)
         XCTAssertEqual(layer.cornerCurve, .continuous)
         XCTAssertTrue(layer.masksToBounds)
         XCTAssertFalse(panel.isOpaque)

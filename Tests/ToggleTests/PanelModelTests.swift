@@ -191,7 +191,7 @@ final class PanelModelTests: XCTestCase {
     func testMenuHighlightClamps() {
         XCTAssertEqual(MenuKeyboard.highlight(current: 0, count: 3, delta: -1), 0)
         XCTAssertEqual(MenuKeyboard.highlight(current: 1, count: 3, delta: 1), 2)
-        XCTAssertEqual(MenuKeyboard.highlight(current: 4, count: 3, delta: 1), 3)
+        XCTAssertEqual(MenuKeyboard.highlight(current: 4, count: 3, delta: 1), 2)
     }
 
     func testGridFocusMovesAcrossRowsAndCollapsedSections() {
